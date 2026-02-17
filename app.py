@@ -5,6 +5,9 @@ All-in-One Financial Analysis Dashboard — Hybrid Architecture
 - Tab 3: Industry Comps (yfinance multiples: Forward P/E, EV/EBITDA, P/B).
 - Cost-effective: Gemini only for text; all numbers from yfinance.
 """
+import os
+os.environ["OBJC_DISABLE_INITIALIZE_FORK_SAFETY"] = "YES"
+
 
 import json
 import os
