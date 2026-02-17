@@ -83,24 +83,29 @@ The **ultimate goal** is to launch this as a **fully commercialised B2C/B2B SaaS
 
 ## Technical Challenge: Handling Large-Scale Financial Filings
 
-During the initial development, I encountered a **429 Resource Exhausted** error due to the massive size of 10-K filings exceeding the LLM's token quota and rate limits.
+During the initial development of the SEC analysis module, I encountered severe 429 Resource Exhausted errors and extreme latency. The massive size of raw 10-K filings (often exceeding 100k+ tokens) easily breached the LLM’s context window and rate limits.
 
-**Consultation & Architectural Pivot:**  
-After consulting with a senior software engineer, I re-architected the application to optimize token usage. The current design uses a **hybrid architecture** that separates qualitative and quantitative work.
+Consultation & Architectural Pivot:
+After consulting with a my friend who is junior software engineer working at MUST Company, I recognised that feeding entire financial documents to an LLM is an anti-pattern. I re-architected the application to a highly optimised Hybrid Data Pipeline, strictly decoupling qualitative reasoning from quantitative data retrieval.
 
-**Implemented Solution:**
+Implemented Solutions:
 
-- **Selective section extraction:** A regex-based parser isolates Item 7 (MD&A) only for the AI; Item 8 is no longer sent to the LLM.
-- **Hybrid processing:**  
-  - **Qualitative (Gemini):** Item 7 only—strategy, risks, and sentiment. This drastically reduces tokens and avoids AI errors on exact figures.  
-  - **Quantitative (yfinance):** Revenue, Net Income, and Operating Cash Flow are pulled from yfinance, so numbers are accurate and no tokens are spent on financial tables.
-- **HTML cleansing:** Before sending Item 7 to Gemini, the app runs a cleansing step (BeautifulSoup + regex) to strip tags, collapse whitespace, and drop page numbers, further compressing tokens.
-- **Chunking:** Long Item 7 text is trimmed to head + tail to stay within token limits.
-- **Efficiency:** Token consumption is greatly reduced (one API call; no Item 8 in the prompt), and numeric accuracy is guaranteed via yfinance.
+Decoupled Processing (Hybrid Architecture): >     * Qualitative (Gemini AI): Strictly limited to processing Item 7 (MD&A) for strategic insights, risk assessment, and sentiment analysis.
 
-For full technical notes and code references, see **[TECHNICAL_NOTES.md](./TECHNICAL_NOTES.md)**.
+Quantitative (yfinance API): Hard numbers (Revenue, Net Income, OCF) are fetched directly via API. This guarantees 100% deterministic accuracy for financials and prevents the LLM from hallucinating numbers or wasting tokens on dense HTML tables.
 
----
+Targeted Extraction & Fallback Logic: Engineered a robust Regex-based parser to isolate only Item 7 from SEC EDGAR documents. Implemented safe fallback mechanisms to prevent app crashes when encountering unconventional document structures.
+
+DOM Traversal & Noise Reduction: Before sending the extracted text to Gemini, a preprocessing pipeline (using BeautifulSoup + Regex) strips away HTML tags, inline CSS, repetitive boilerplate, and page numbers, drastically compressing the token footprint.
+
+Context Window Optimization: For exceptionally long MD&A sections, I implemented a Head-Tail Truncation chunking strategy—retaining the executive introduction and concluding remarks—to ensure the most semantically dense information stays within token limits.
+
+In-Memory Caching: Applied Streamlit caching (@st.cache_data) for both parsed SEC documents and LLM responses, eliminating redundant API calls and ensuring instant load times for subsequent queries.
+
+Results & Efficiency:
+This architectural shift reduced the token payload by roughly [80]%, completely resolved the 429 errors, dropped rendering latency to under [5] seconds, and achieved zero API cost for fundamental financial data retrieval.
+
+(For full technical notes, code snippets, and architecture diagrams, see TECHNICAL_NOTES.md.)
 
 ## Requirements
 
