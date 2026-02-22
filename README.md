@@ -112,6 +112,7 @@ This architectural shift reduced the token payload by roughly [80]%, completely 
 - Python 3.9+  
 - [Google API Key (Gemini)](https://aistudio.google.com/apikey)  
 - An email address for SEC EDGAR (required for programmatic access)  
+- **plotly** and **yfinance** (for Market Heatmap and FX momentum charts; `pip install plotly yfinance` if missing)  
 - Optional: `.env` with `GOOGLE_API_KEY` and `SEC_EDGAR_EMAIL`  
 
 ---
@@ -142,8 +143,12 @@ pip install -r requirements.txt
 
 **4. Start the app**
 ```bash
-streamlit run app.py
+streamlit run app.py --server.port 8501
 ```
+또는 `./run.sh` (포트 8501 고정)
+
+**접속 주소 (이것만 사용):** http://localhost:8501  
+*(다른 포트(8502, 8510 등)로 떠 있는 창은 닫고 위 주소 하나만 사용하세요.)*
 
 If you don't have a `venv` folder yet, create it first:
 ```bash
@@ -174,6 +179,8 @@ Updates are listed in **reverse chronological order (newest first)**. Each row s
 
 | Date (UTC) | Updates |
 |------------|---------|
+| **2026-02-18** | **Market Heatmap & FX charts, 10-K 한글/영문:** (1) **Global Markets (Tab 2):** Sector heatmap uses **5d/1mo** data and **per-ticker fallback** so the treemap always renders (weekend/holiday robust). **FX Momentum** section now includes a **normalized 1Y line chart** (GBP/USD, EUR/USD, USD/JPY, KRW) with per-pair fetch fallback. **plotly** and **yfinance** fallback import in the view so charts work after `pip install plotly yfinance` without restart. (2) **10-K & MD&A:** Display language **한글 / 영문** radio; when "한글" is selected, Strategy and Risk analysis results are translated via Gemini (`translate_report_with_gemini`, 24h cache). Gemini API key required for translation. (3) **Requirements:** `plotly` and `yfinance` are required for heatmap and FX charts; install with `pip install plotly yfinance` if missing. |
+| **2026-02-17** | **DART, prefs, 10-K tab, run script:** DART fetch timeout 90s; DART report titles in English (cached). SEC & DART tab: per-category iframe viewer (Annual/Quarterly/Other). **Last selected company** persisted in `.app_prefs.json` so it survives page refresh. API key input field no longer masked (type=password removed). Global Markets: time period labels in English; macro/FX use 5d when 1D selected for sparklines. **10-K & MD&A** tab restored in Deep Analysis with Item 7 (Strategy) and Item 1A (Risk) Gemini streaming. Single run script: **`run.sh`** and README state **http://localhost:8501** only. |
 | **2025-02-15** | **Multi-currency portfolio & app-wide FX:** (1) **Portfolio (Tab 7):** Per-position **Currency** column (USD, GBP, EUR, KRW, JPY, CNY). **Fractional quantity** support (e.g. 30.395107). **FX-adjusted returns:** user cost/currency → real-time `get_fx_rate(user_curr, stock_curr)` → `adjusted_avg` in asset currency → Total Return % = (current − adjusted_avg) / adjusted_avg. (2) **AI screenshot (Gemini Vision):** Prompt updated to extract **Currency** (from $, £, €, ₩, ¥ → USD/GBP/EUR/KRW/JPY) and **Quantity** with decimals preserved. (3) **App-wide:** `get_currency_for_ticker`, `get_fx_rate`, `get_fx_rate_to_usd` (yfinance FX, TTL 60–120s), `format_price_with_usd` (local + USD e.g. ₩ 181,200 (≈ $ 132.50)). (4) **Valuation Hub:** DCF/Reverse DCF/RIM show ticker currency and USD conversion when non-USD. (5) **Earnings & Estimates:** Analyst targets/price in ticker currency with USD conversion. README restored to English with full changelog and 8-tab layout. |
 | **2025-02-14** | **Global company search & README:** Sidebar company search replaced with yahooquery `search()`: type company name (e.g. Samsung, 삼성, Mitsubishi), click "Search Company", select from dropdown `[Exchange] Symbol - Name`. Filter: EQUITY/ETF only (exclude INDEX/MUTUALFUND). Market suffix inferred from symbol (.KS/.KQ, .T, .L). README: Tech Stack (yahooquery, lxml), Features (global search, Item 8 quant), run/push instructions path-agnostic. |
 | **2025-02-13** | **Design Rationale & README:** New section "Design Rationale & Interview Notes" (undergrad automation mindset, 10y DCF rationale, Damodaran integration, consensus-panel rationale, commercialization). README Features and tab table updated to reflect 10Y 2-stage DCF, sector analysis, and Wall Street Assumptions panel. Changelog expanded with more detailed entries. |
