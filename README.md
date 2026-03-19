@@ -72,18 +72,52 @@ Open: [http://localhost:8501](http://localhost:8501)
 
 ## Architecture: Hybrid AI + Quantitative Pipeline
 
-```
-SEC EDGAR (10-K HTML)
-        │
-        ├── Item 7 (MD&A) ──────► Gemini 2.0 Flash ─► Strategy / Sentiment
-        ├── Item 1A (Risk) ──────► Gemini 2.0 Flash ─► Risk Factors + Forensic Audit
-        └── Item 8 (Financials) ─► (NOT sent to LLM — avoids hallucination on numbers)
+```mermaid
+graph TB
+    classDef ui fill:#FF4B4B,stroke:#333,stroke-width:2px,color:#fff;
+    classDef core fill:#4C51BF,stroke:#333,stroke-width:2px,color:#fff;
+    classDef quant fill:#38B2AC,stroke:#333,stroke-width:2px,color:#fff;
+    classDef qual fill:#DD6B20,stroke:#333,stroke-width:2px,color:#fff;
+    classDef llm fill:#805AD5,stroke:#333,stroke-width:2px,color:#fff;
 
-yfinance / yahooquery
-        │
-        ├── Income / Balance / Cashflow ─► DuPont, Piotroski, Altman Z
-        ├── Price history ───────────────► RSI, SMA, 52W Range
-        └── DCF inputs (FCF, Debt, Cash, Shares) ─► Bull/Base/Bear intrinsic value
+    User((🧑‍💻 User))
+
+    subgraph Frontend ["🖥️ Frontend Interface"]
+        UI[Streamlit Web Dashboard]:::ui
+    end
+
+    subgraph Input_Sync ["📷 Portfolio Sync (Bypassing API Limits)"]
+        OCR[Gemini Vision OCR Pipeline]:::llm
+    end
+
+    subgraph Engine ["⚙️ Core Backend (Python)"]
+        Core{Hybrid RAG Architecture <br> Token Cost -80%}:::core
+    end
+
+    subgraph Quant_Pipeline ["📊 Quantitative Pipeline (No LLM)"]
+        YF[(yfinance API)]:::quant
+        BS[(BeautifulSoup Web Scraper)]:::quant
+    end
+
+    subgraph Qual_Pipeline ["📝 Qualitative Pipeline (NLP)"]
+        SEC[(SEC Filings: Item 7 MD&A)]:::qual
+        LLM((Google Gemini LLM Engine)):::llm
+    end
+
+    User -- 1. Uploads Portfolio Screenshot --> OCR
+    User -- 2. Enters Stock Ticker --> UI
+
+    OCR -- Extracts Tickers & Syncs --> Core
+    UI -- Sends Request --> Core
+    Core -- Fetch Financials/Prices --> YF
+    Core -- Parse Web Data --> BS
+    YF -. Raw Data .-> Core
+    BS -. Scraped Data .-> Core
+    Core -- Fetch SEC Documents --> SEC
+    SEC -- Raw Text (MD&A) --> LLM
+    LLM -- Sentiment Analysis & Hidden Risks --> Core
+    Core -- Aggregated Insights & Valuation --> UI
+    UI -- Displays Final Dashboard --> User
 ```
 
 **Design principle:** LLM for text only; Python for numbers. This eliminates hallucination risk on financial figures and keeps API costs to a single Gemini call per session.
