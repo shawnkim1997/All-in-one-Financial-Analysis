@@ -1,7 +1,9 @@
 venv/
 .env
 .app_prefs.json
-data/
+# SEC filing cache files (auto-generated, do not commit)
+data/*.json
+data/*.html
 __pycache__/
 .DS_Store
 
