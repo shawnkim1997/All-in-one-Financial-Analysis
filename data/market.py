@@ -90,10 +90,11 @@ def _get_ticker_bar_data() -> list:
 def _fetch_news_rss(ticker_sym: str, company_name: str = "") -> list:
     """Fetch news from Google News RSS. Returns list of {title, source, url, published}."""
     import feedparser
+    from urllib.parse import quote_plus
     items = []
     query = ticker_sym if not company_name else company_name
     try:
-        feed = feedparser.parse(f"https://news.google.com/rss/search?q={query}+stock&hl=en-US&gl=US&ceid=US:en")
+        feed = feedparser.parse(f"https://news.google.com/rss/search?q={quote_plus(query)}+stock&hl=en-US&gl=US&ceid=US:en")
         for entry in (feed.entries or [])[:15]:
             items.append({
                 "title": entry.get("title", ""),

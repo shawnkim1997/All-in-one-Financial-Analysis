@@ -20,5 +20,32 @@ build/
 # IDE
 .idea/
 .vscode/
+.cursor/
 *.swp
 *.swo
+
+# Node / Next.js
+node_modules/
+.next/
+.turbo/
+
+# SQLite
+*.db
+*.db-shm
+*.db-wal
+
+# Claude
+.claude/
+
+# Package locks (keep only package.json)
+package-lock.json
+
+# SEC EDGAR cache
+SEC-EDGAR-Filings/
+
+# Backup directories
+*-backup/
+
+# Prompt files
+CLAUDE_CODE_PROMPT.md
+REFACTORING_PROMPT.md

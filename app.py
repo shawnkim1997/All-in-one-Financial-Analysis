@@ -1,10 +1,6 @@
 """
 ATLAS Terminal — Thin Orchestrator
 All-in-One Financial Analysis Dashboard — Hybrid Architecture
-- Tab 1: 10-K & MD&A Insights (Item 7 + Item 1A → Gemini, qualitative only).
-- Tab 2: 3-Scenario DCF Valuation (yfinance + sliders, no LLM).
-- Tab 3: Industry Comps (yfinance multiples: Forward P/E, EV/EBITDA, P/B).
-- Cost-effective: Gemini only for text; all numbers from yfinance.
 """
 import os
 os.environ["OBJC_DISABLE_INITIALIZE_FORK_SAFETY"] = "YES"
@@ -26,6 +22,10 @@ from views.tab4_news import render_tab4
 from views.tab5_markets import render_tab5
 from views.tab6_crypto import render_tab6
 from views.tab7_technical import render_tab7
+from views.tab8_financial_statement import render_tab8
+from views.tab9_portfolio import render_tab9
+from views.tab10_valuation import render_tab10
+from views.tab11_estimates import render_tab11
 
 try:
     import yfinance as yf
@@ -64,14 +64,18 @@ if ticker_data:
 ticker = render_sidebar()
 
 # ---------- Tabs ----------
-tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
-    "\U0001f4ca 10-K & MD&A Insights",
-    "\U0001f4b0 DCF Valuation",
-    "\U0001f3ed Industry Comps",
-    "\U0001f4f0 News Feed",
-    "\U0001f30d Markets & FX",
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs([
+    "\U0001f4ca 10-K & MD&A",
+    "\U0001f4b0 DCF",
+    "\U0001f3ed Comps",
+    "\U0001f4f0 News",
+    "\U0001f30d Markets",
     "\u20bf Crypto",
-    "\U0001f6e1 Technical & Risk",
+    "\U0001f6e1 Technical",
+    "\U0001f4c4 Financials",
+    "\U0001f4bc Portfolio",
+    "\U0001f4b9 Valuation",
+    "\U0001f4c8 Estimates",
 ])
 
 # ----- Tab 1: 10-K & MD&A Insights -----
@@ -93,26 +97,32 @@ with tab1:
         render_tab1_ai_analysis(ticker, quant_ticker, market)
         render_tab1_filings(ticker, market)
 
-# ----- Tab 2: DCF Valuation -----
 with tab2:
     render_tab2(ticker)
 
-# ----- Tab 3: Industry Comps -----
 with tab3:
     render_tab3(ticker)
 
-# ----- Tab 4: News Feed -----
 with tab4:
     render_tab4(ticker)
 
-# ----- Tab 5: Markets & FX -----
 with tab5:
     render_tab5()
 
-# ----- Tab 6: Crypto -----
 with tab6:
     render_tab6()
 
-# ----- Tab 7: Technical & Risk -----
 with tab7:
     render_tab7(ticker)
+
+with tab8:
+    render_tab8(ticker)
+
+with tab9:
+    render_tab9()
+
+with tab10:
+    render_tab10(ticker)
+
+with tab11:
+    render_tab11(ticker)
