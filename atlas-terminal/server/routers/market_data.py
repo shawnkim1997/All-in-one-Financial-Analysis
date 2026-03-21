@@ -3,6 +3,7 @@
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, Query
+from server.utils.ticker_utils import AssetType, detect_asset_type
 
 router = APIRouter()
 
@@ -51,12 +52,92 @@ async def market_indices():
         return []
 
 
+@router.get("/overview", summary="Global market overview")
+async def market_overview():
+    try:
+        from server.services.market_overview import get_market_overview
+
+        return await get_market_overview()
+    except Exception as e:
+        return {"error": str(e), "data": None}
+
+
+@router.get("/sectors", summary="Sector heatmap")
+async def sector_heatmap():
+    try:
+        from server.services.sector_heatmap import get_sector_heatmap
+
+        return await get_sector_heatmap()
+    except Exception as e:
+        return {"error": str(e), "data": None}
+
+
+@router.get("/overview/{ticker}", summary="Asset-type aware overview")
+async def market_overview_by_ticker(ticker: str):
+    """Detect asset type and return overview payload for that type."""
+    try:
+        asset_type = detect_asset_type(ticker)
+        if asset_type == AssetType.ETF:
+            from server.services.etf_analysis import get_etf_overview
+
+            return {"asset_type": AssetType.ETF.value, "data": await get_etf_overview(ticker)}
+        if asset_type == AssetType.COMMODITY_FUTURE:
+            from server.services.commodity_analysis import get_commodity_overview
+
+            return {"asset_type": AssetType.COMMODITY_FUTURE.value, "data": await get_commodity_overview(ticker)}
+        if asset_type == AssetType.CRYPTO:
+            return {"asset_type": AssetType.CRYPTO.value, "data": {"name": ticker.upper()}}
+        if asset_type == AssetType.INDEX:
+            return {"asset_type": AssetType.INDEX.value, "data": {"name": ticker.upper()}}
+        from server.services.etf_analysis import get_equity_overview
+
+        return {"asset_type": AssetType.EQUITY.value, "data": await get_equity_overview(ticker)}
+    except Exception as e:
+        return {"error": str(e), "asset_type": AssetType.EQUITY.value, "data": None}
+
+
+@router.get("/etf/{ticker}/holdings", summary="ETF top holdings")
+async def etf_holdings(ticker: str):
+    try:
+        from server.services.etf_analysis import get_etf_holdings
+
+        return {"ticker": ticker.upper(), "holdings": await get_etf_holdings(ticker)}
+    except Exception as e:
+        return {"error": str(e), "ticker": ticker.upper(), "holdings": []}
+
+
+@router.get("/commodity/{ticker}/seasonal", summary="Commodity monthly seasonal pattern")
+async def commodity_seasonal(ticker: str):
+    try:
+        from server.services.commodity_analysis import get_commodity_overview
+
+        data = await get_commodity_overview(ticker)
+        return {"ticker": ticker.upper(), "seasonal_pattern": data.get("seasonal_pattern", {})}
+    except Exception as e:
+        return {"error": str(e), "ticker": ticker.upper(), "seasonal_pattern": {}}
+
+
+@router.get("/commodity/{ticker}/correlations", summary="Commodity correlations")
+async def commodity_correlations(ticker: str):
+    try:
+        from server.services.commodity_analysis import compute_commodity_correlations
+
+        return {"ticker": ticker.upper(), "correlations": await compute_commodity_correlations(ticker)}
+    except Exception as e:
+        return {"error": str(e), "ticker": ticker.upper(), "correlations": {}}
+
+
 @router.get("/sector/{ticker}", summary="Sector and industry classification")
 async def sector_industry(ticker: str):
     try:
         import yfinance as yf
         t = yf.Ticker(ticker.upper())
         info = t.info or {}
+        city = (info.get("city") or "").strip()
+        state = (info.get("state") or "").strip()
+        country = (info.get("country") or "").strip()
+        hq_parts = [p for p in [city, state, country] if p]
+        hq = ", ".join(hq_parts) if hq_parts else "N/A"
         return {
             "sector": info.get("sector", "N/A"),
             "industry": info.get("industry", "N/A"),
@@ -67,6 +148,13 @@ async def sector_industry(ticker: str):
             "fifty_two_week_high": _safe_float(info.get("fiftyTwoWeekHigh")),
             "fifty_two_week_low": _safe_float(info.get("fiftyTwoWeekLow")),
             "current_price": _safe_float(info.get("currentPrice") or info.get("regularMarketPrice")),
+            "ceo": info.get("companyOfficers", [{}])[0].get("name") if isinstance(info.get("companyOfficers"), list) and info.get("companyOfficers") else None,
+            "employees": info.get("fullTimeEmployees"),
+            "founded": info.get("founded"),
+            "hq": hq,
+            "website": info.get("website"),
+            "ipo_date": info.get("ipoExpectedDate") or info.get("firstTradeDateEpochUtc"),
+            "description": info.get("longBusinessSummary"),
         }
     except Exception:
         return {"sector": "N/A", "industry": "N/A"}
@@ -134,7 +222,15 @@ async def industry_comps(tickers: str = Query(..., description="Comma-separated 
 
 @router.get("/health/{ticker}", summary="DuPont, Altman Z-Score, Red Flags")
 async def financial_health(ticker: str):
-    fallback = {"ticker": ticker.upper(), "dupont": {}, "altman_z": None, "red_flags": []}
+    fallback = {
+        "ticker": ticker.upper(),
+        "dupont": {},
+        "altman_z": None,
+        "current_ratio": None,
+        "interest_coverage": None,
+        "debt_to_equity": None,
+        "red_flags": [],
+    }
     try:
         import yfinance as yf
         t = yf.Ticker(ticker.upper())
@@ -199,20 +295,61 @@ async def financial_health(ticker: str):
                 rev_ta = rev / ta
                 altman_z = round(1.2 * wc_ta + 1.4 * re_ta + 3.3 * ebit_ta + 0.6 * mc_tl + 1.0 * rev_ta, 2)
 
+        # Additional health metrics for overview cards
+        current_ratio = None
+        if bs is not None and not bs.empty:
+            col_bs = bs.columns[0]
+            ca = _safe_float(bs.loc["Current Assets"][col_bs]) if "Current Assets" in bs.index else 0
+            cl = _safe_float(bs.loc["Current Liabilities"][col_bs]) if "Current Liabilities" in bs.index else 0
+            current_ratio = (ca / cl) if cl else None
+        if current_ratio is None:
+            info_cr = _safe_float(info.get("currentRatio"), None)
+            current_ratio = info_cr if info_cr and info_cr > 0 else None
+
+        interest_coverage = None
+        if fin is not None and not fin.empty:
+            col_fin = fin.columns[0]
+            ebit = _safe_float(fin.loc["EBIT"][col_fin]) if "EBIT" in fin.index else _safe_float(fin.loc["Operating Income"][col_fin]) if "Operating Income" in fin.index else None
+            int_exp = _safe_float(fin.loc["Interest Expense"][col_fin]) if "Interest Expense" in fin.index else None
+            if ebit is not None and int_exp is not None and int_exp != 0:
+                interest_coverage = abs(ebit / int_exp)
+
+        debt_to_equity = None
+        if bs is not None and not bs.empty:
+            col_bs = bs.columns[0]
+            total_debt = _safe_float(bs.loc["Total Debt"][col_bs], None) if "Total Debt" in bs.index else None
+            if total_debt is None:
+                ltd = _safe_float(bs.loc["Long Term Debt"][col_bs], 0) if "Long Term Debt" in bs.index else 0
+                std = _safe_float(bs.loc["Current Debt"][col_bs], 0) if "Current Debt" in bs.index else 0
+                total_debt = ltd + std if (ltd or std) else None
+            equity = total_equity if total_equity else None
+            if total_debt is not None and equity:
+                debt_to_equity = total_debt / equity
+        if debt_to_equity is None:
+            de_info = _safe_float(info.get("debtToEquity"), None)
+            if de_info is not None:
+                debt_to_equity = de_info / 100 if de_info > 10 else de_info
+
         # Red Flags
         red_flags = []
-        cr = _safe_float(info.get("currentRatio"))
-        de = _safe_float(info.get("debtToEquity"))
-        if cr and cr < 1.0:
-            red_flags.append(f"Low current ratio: {cr:.2f}")
-        if de and de > 200:
-            red_flags.append(f"High debt-to-equity: {de:.1f}%")
+        if current_ratio is not None and current_ratio < 1.0:
+            red_flags.append(f"Low current ratio: {current_ratio:.2f}")
+        if debt_to_equity is not None and debt_to_equity > 2.0:
+            red_flags.append(f"High debt-to-equity: {debt_to_equity:.2f}")
         if npm and npm < 0:
             red_flags.append("Negative profit margin")
         if roe and roe < 0:
             red_flags.append("Negative ROE")
 
-        return {"ticker": ticker.upper(), "dupont": dupont, "altman_z": altman_z, "red_flags": red_flags}
+        return {
+            "ticker": ticker.upper(),
+            "dupont": dupont,
+            "altman_z": altman_z,
+            "current_ratio": round(current_ratio, 2) if current_ratio is not None else None,
+            "interest_coverage": round(interest_coverage, 2) if interest_coverage is not None else None,
+            "debt_to_equity": round(debt_to_equity, 2) if debt_to_equity is not None else None,
+            "red_flags": red_flags,
+        }
     except Exception as e:
         return fallback
 

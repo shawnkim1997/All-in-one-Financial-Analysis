@@ -44,19 +44,44 @@ def _fetch_fx_rate(pair: str) -> float | None:
 @router.get(
     "/rates",
     response_model=FXRateResponse,
-    summary="Major FX rates",
+    summary="FX conversion matrix for major currencies",
 )
 async def fx_rates():
-    """Return current exchange rates for major currency pairs
-    (USD/KRW, USD/JPY, EUR/USD, GBP/USD, etc.).
-    """
+    """Return conversion matrix (USD/GBP/EUR/JPY/KRW)."""
     try:
-        rates: Dict[str, float] = {}
-        for pair in MAJOR_PAIRS:
-            rate = _fetch_fx_rate(pair)
-            if rate is not None:
-                rates[pair] = round(rate, 4)
-        return FXRateResponse(pair="MAJOR", rates=rates)
+        gbp_usd = _fetch_fx_rate("GBPUSD") or 1.27
+        eur_usd = _fetch_fx_rate("EURUSD") or 1.08
+        usd_jpy = _fetch_fx_rate("USDJPY") or 149.5
+        usd_krw = _fetch_fx_rate("USDKRW") or 1370.0
+
+        rates = {
+            "USD_USD": 1.0,
+            "USD_GBP": 1 / gbp_usd,
+            "USD_EUR": 1 / eur_usd,
+            "USD_JPY": usd_jpy,
+            "USD_KRW": usd_krw,
+            "GBP_USD": gbp_usd,
+            "GBP_GBP": 1.0,
+            "GBP_EUR": gbp_usd / eur_usd,
+            "GBP_JPY": gbp_usd * usd_jpy,
+            "GBP_KRW": gbp_usd * usd_krw,
+            "EUR_USD": eur_usd,
+            "EUR_GBP": eur_usd / gbp_usd,
+            "EUR_EUR": 1.0,
+            "EUR_JPY": eur_usd * usd_jpy,
+            "EUR_KRW": eur_usd * usd_krw,
+            "JPY_USD": 1 / usd_jpy,
+            "JPY_GBP": 1 / (gbp_usd * usd_jpy),
+            "JPY_EUR": 1 / (eur_usd * usd_jpy),
+            "JPY_JPY": 1.0,
+            "JPY_KRW": usd_krw / usd_jpy,
+            "KRW_USD": 1 / usd_krw,
+            "KRW_GBP": 1 / (gbp_usd * usd_krw),
+            "KRW_EUR": 1 / (eur_usd * usd_krw),
+            "KRW_JPY": usd_jpy / usd_krw,
+            "KRW_KRW": 1.0,
+        }
+        return FXRateResponse(pair="MATRIX", rates=rates)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"FX rates failed: {exc}") from exc
 

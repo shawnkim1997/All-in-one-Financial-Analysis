@@ -44,7 +44,7 @@ app.add_middleware(
 )
 
 # --- Mount routers ---
-from server.routers import edgar, analysis, valuation, market_data, news, crypto, fx, portfolio, technical, financials, estimates, earnings, insider  # noqa: E402
+from server.routers import edgar, analysis, valuation, market_data, news, crypto, fx, portfolio, technical, financials, estimates, earnings, insider, screener, markets  # noqa: E402
 
 app.include_router(edgar.router, prefix="/api/edgar", tags=["SEC EDGAR"])
 app.include_router(analysis.router, prefix="/api/analysis", tags=["AI Analysis"])
@@ -55,10 +55,12 @@ app.include_router(estimates.router, prefix="/api/estimates", tags=["Estimates"]
 app.include_router(news.router, prefix="/api/news", tags=["News"])
 app.include_router(crypto.router, prefix="/api/crypto", tags=["Crypto"])
 app.include_router(fx.router, prefix="/api/fx", tags=["FX"])
+app.include_router(markets.router, prefix="/api/markets", tags=["Markets"])
 app.include_router(portfolio.router, prefix="/api/portfolio", tags=["Portfolio"])
 app.include_router(technical.router, prefix="/api/technical", tags=["Technical"])
 app.include_router(earnings.router, prefix="/api/earnings", tags=["Earnings"])
 app.include_router(insider.router, prefix="/api/insider", tags=["Insider Trading"])
+app.include_router(screener.router, prefix="/api/screener", tags=["Screener"])
 
 
 @app.get("/health")

@@ -1,11 +1,13 @@
 """Portfolio router -- position management, OCR screenshot upload, summary."""
 
 import json
+import os
 import uuid
 from pathlib import Path
 from typing import List
 
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, HTTPException, UploadFile, File, Header
+from pydantic import BaseModel, Field
 
 from server.models.schemas import (
     PortfolioPosition,
@@ -17,6 +19,18 @@ router = APIRouter()
 
 # Simple file-based persistence (production would use Supabase / Postgres)
 _PORTFOLIO_FILE = Path(__file__).resolve().parent.parent.parent / "data" / "portfolio.json"
+
+
+class PositionUpdateRequest(BaseModel):
+    quantity: float = Field(..., gt=0)
+    avg_price: float = Field(..., ge=0)
+    exchange: str = ""
+
+
+class OcrRecalculateRequest(BaseModel):
+    account_currency: str = "USD"
+    position: dict
+    selected_exchange: str = ""
 
 
 def _load_positions() -> List[dict]:
@@ -77,24 +91,36 @@ async def list_positions():
 @router.post(
     "/positions",
     response_model=PortfolioPosition,
-    summary="Add a portfolio position",
+    summary="Add or update a portfolio position",
 )
 async def add_position(pos: PortfolioPositionCreate):
-    """Add a new position to the portfolio."""
+    """Add a new position. If ticker exists, update quantity/avg/currency."""
     try:
         positions = _load_positions()
-        new_pos = {
-            "id": str(uuid.uuid4()),
-            "ticker": pos.ticker.upper(),
-            "company_name": pos.company_name,
-            "quantity": pos.quantity,
-            "avg_price": pos.avg_price,
-            "currency": pos.currency,
-            "source": pos.source,
-        }
-        positions.append(new_pos)
+        ticker = pos.ticker.upper()
+        existing = next((p for p in positions if str(p.get("ticker", "")).upper() == ticker), None)
+        if existing is not None:
+            existing["company_name"] = pos.company_name or existing.get("company_name", "")
+            existing["quantity"] = float(pos.quantity)
+            existing["avg_price"] = float(pos.avg_price)
+            existing["currency"] = pos.currency or existing.get("currency", "USD")
+            existing["exchange"] = pos.exchange or existing.get("exchange", "")
+            existing["source"] = pos.source or existing.get("source", "manual")
+            saved = existing
+        else:
+            saved = {
+                "id": str(uuid.uuid4()),
+                "ticker": ticker,
+                "company_name": pos.company_name,
+                "quantity": pos.quantity,
+                "avg_price": pos.avg_price,
+                "currency": pos.currency,
+                "exchange": pos.exchange,
+                "source": pos.source,
+            }
+            positions.append(saved)
         _save_positions(positions)
-        return PortfolioPosition(**new_pos)
+        return PortfolioPosition(**saved)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to add position: {exc}") from exc
 
@@ -119,6 +145,79 @@ async def remove_position(position_id: str):
         raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to remove position: {exc}") from exc
+
+
+@router.put(
+    "/positions/{position_id}",
+    response_model=PortfolioPosition,
+    summary="Update quantity/avg price for a position",
+)
+async def update_position(position_id: str, body: PositionUpdateRequest):
+    """Update an existing position by unique ID."""
+    try:
+        positions = _load_positions()
+        updated = None
+        for p in positions:
+            if p.get("id") == position_id:
+                p["quantity"] = float(body.quantity)
+                p["avg_price"] = float(body.avg_price)
+                if body.exchange:
+                    p["exchange"] = body.exchange
+                updated = p
+                break
+        if updated is None:
+            raise HTTPException(status_code=404, detail=f"Position {position_id} not found.")
+        _save_positions(positions)
+        return PortfolioPosition(**updated)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to update position: {exc}") from exc
+
+
+@router.post(
+    "/ocr",
+    summary="OCR screenshot with smart reverse-engineering",
+)
+async def ocr_screenshot(
+    file: UploadFile = File(...),
+    x_gemini_api_key: str | None = Header(default=None),
+):
+    """Screenshot -> OCR extraction -> market-validated reverse-engineered positions."""
+    try:
+        from server.services.screenshot_ocr import process_portfolio_screenshot
+
+        image_bytes = await file.read()
+        api_key = (x_gemini_api_key or "").strip() or os.getenv("GOOGLE_API_KEY", "").strip()
+        result = await process_portfolio_screenshot(api_key, image_bytes)
+        if result.get("error"):
+            return {"error": result.get("error"), "positions": [], "count": 0, "warnings": []}
+        result["count"] = len(result.get("positions") or [])
+        return result
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"OCR processing failed: {exc}") from exc
+
+
+@router.get("/exchange-options/{ticker}", summary="Available exchange options for a ticker")
+async def exchange_options(ticker: str):
+    from server.services.exchange_resolver import get_exchange_options
+
+    return {"ticker": ticker.upper(), "options": get_exchange_options(ticker)}
+
+
+@router.post("/ocr/recalculate", summary="Recalculate one OCR row with selected exchange")
+async def ocr_recalculate(body: OcrRecalculateRequest):
+    from server.services.screenshot_ocr import reverse_engineer_positions
+
+    ticker = str((body.position or {}).get("ticker", "")).upper()
+    if not ticker:
+        raise HTTPException(status_code=400, detail="position.ticker is required")
+    payload = {"account_currency": body.account_currency, "positions": [body.position]}
+    overrides = {ticker: body.selected_exchange} if body.selected_exchange else {}
+    recalculated = reverse_engineer_positions(payload, overrides)
+    if not recalculated:
+        raise HTTPException(status_code=400, detail="Failed to recalculate position")
+    return {"position": recalculated[0]}
 
 
 @router.post(
@@ -209,6 +308,7 @@ async def portfolio_summary():
                 quantity=quantity,
                 avg_price=avg_price,
                 currency=p.get("currency", "USD"),
+                exchange=p.get("exchange", ""),
                 source=p.get("source", "manual"),
                 current_price=current_price,
                 market_value=market_value,

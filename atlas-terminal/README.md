@@ -25,3 +25,10 @@ npm run dev
 - **Frontend:** Next.js 14, TypeScript, Tailwind CSS, TradingView Lightweight Charts
 - **Backend:** FastAPI, Python 3.12+, yfinance, yahooquery, Google Gemini
 - **Database:** SQLite (local) / PostgreSQL (production)
+
+## Recent Updates
+
+- Added multi-asset analysis branching across Overview/Research/Valuation/Earnings for equity, ETF, and commodity futures.
+- Implemented commodity and ETF market widgets, plus index-level stock heatmap with interactive index switching.
+- Upgraded portfolio OCR with reverse-engineering logic, exchange selection (including SMSN -> `SMSN.L`), and inline edit/delete flows.
+- Added portfolio exchange-aware recalculation and FX conversion matrix support for multi-currency display.

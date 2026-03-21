@@ -5,6 +5,7 @@ Yahoo Finance-compatible identifiers with the correct market suffix,
 and provides the static lookup tables for companies and sectors.
 """
 
+from enum import Enum
 from typing import List, Tuple
 
 # ---------------------------------------------------------------------------
@@ -40,6 +41,41 @@ MARKET_OPTIONS: List[str] = [
     "Japan (Nikkei)",
     "UK (LSE)",
 ]
+
+
+class AssetType(str, Enum):
+    EQUITY = "equity"
+    ETF = "etf"
+    COMMODITY_FUTURE = "commodity_future"
+    CRYPTO = "crypto"
+    INDEX = "index"
+
+
+COMMODITY_FUTURES: dict[str, str] = {
+    "GC=F": "Gold", "SI=F": "Silver", "PL=F": "Platinum", "PA=F": "Palladium",
+    "CL=F": "Crude Oil (WTI)", "BZ=F": "Brent Crude", "NG=F": "Natural Gas",
+    "HO=F": "Heating Oil", "RB=F": "Gasoline",
+    "ZC=F": "Corn", "ZS=F": "Soybeans", "ZW=F": "Wheat",
+    "KC=F": "Coffee", "CT=F": "Cotton", "SB=F": "Sugar",
+    "CC=F": "Cocoa", "OJ=F": "Orange Juice",
+    "LE=F": "Live Cattle", "HE=F": "Lean Hogs",
+    "HG=F": "Copper", "ALI=F": "Aluminum",
+}
+
+POPULAR_COMMODITY_ETFS: dict[str, str] = {
+    "GLD": "SPDR Gold Trust", "IAU": "iShares Gold Trust", "SLV": "iShares Silver Trust",
+    "PPLT": "abrdn Platinum ETF", "USO": "United States Oil Fund", "UNG": "United States Natural Gas Fund",
+    "XLE": "Energy Select Sector SPDR", "VDE": "Vanguard Energy ETF", "DBC": "Invesco DB Commodity Tracking",
+    "GSG": "iShares S&P GSCI Commodity", "PDBC": "Invesco Optimum Yield Diversified Commodity",
+    "COM": "Direxion Auspice Broad Commodity", "DBA": "Invesco DB Agriculture Fund",
+    "WEAT": "Teucrium Wheat Fund", "CORN": "Teucrium Corn Fund", "SOYB": "Teucrium Soybean Fund",
+    "SPY": "S&P 500 ETF", "QQQ": "Nasdaq 100 ETF", "IWM": "Russell 2000 ETF",
+    "EEM": "Emerging Markets ETF", "VWO": "Vanguard FTSE Emerging Markets",
+    "TLT": "20+ Year Treasury Bond ETF", "HYG": "High Yield Corporate Bond ETF",
+    "LQD": "Investment Grade Corporate Bond ETF", "ARKK": "ARK Innovation ETF",
+    "XLK": "Technology Select Sector SPDR", "XLF": "Financial Select Sector SPDR",
+    "XLV": "Health Care Select Sector SPDR",
+}
 
 # ---------------------------------------------------------------------------
 # Sector / industry peer groups (top-down analysis)
@@ -120,3 +156,28 @@ def infer_market_from_ticker(ticker: str) -> str:
     if t.endswith(".L"):
         return "UK (LSE)"
     return "US (S&P/Dow/Nasdaq)"
+
+
+def detect_asset_type(ticker: str) -> AssetType:
+    """Detect asset type by ticker pattern and quoteType fallback."""
+    t = (ticker or "").strip().upper()
+    if not t:
+        return AssetType.EQUITY
+    if t.endswith("=F") or t in COMMODITY_FUTURES:
+        return AssetType.COMMODITY_FUTURE
+    if t.endswith("-USD") or t.endswith("-KRW"):
+        return AssetType.CRYPTO
+    if t.startswith("^"):
+        return AssetType.INDEX
+    try:
+        import yfinance as yf
+
+        info = yf.Ticker(t).info or {}
+        quote_type = str(info.get("quoteType", "")).upper()
+        if quote_type in {"ETF", "MUTUALFUND"}:
+            return AssetType.ETF
+    except Exception:
+        pass
+    if t in POPULAR_COMMODITY_ETFS:
+        return AssetType.ETF
+    return AssetType.EQUITY

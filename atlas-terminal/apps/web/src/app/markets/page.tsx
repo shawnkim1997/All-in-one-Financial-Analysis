@@ -1,13 +1,37 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useTicker } from "../lib/use-ticker";
+import { HeatmapSection } from "../components/markets/HeatmapSection";
 
 type StatementType = "income_statement" | "balance_sheet" | "cash_flow";
+type ViewTab = "overview" | "statements";
 
 interface FinancialStatements {
   income_statement?: Record<string, unknown>[];
   balance_sheet?: Record<string, unknown>[];
   cash_flow?: Record<string, unknown>[];
+}
+
+interface OverviewItem {
+  name: string;
+  symbol: string;
+  price: number;
+  change_pct: number;
+}
+
+interface MarketOverviewResponse {
+  indices?: OverviewItem[];
+  commodities?: OverviewItem[];
+  bonds?: OverviewItem[];
+  crypto?: OverviewItem[];
+  fx?: OverviewItem[];
+  popular_etfs?: OverviewItem[];
+}
+
+interface SectorHeat {
+  sector: string;
+  etf: string;
+  change_pct: number;
 }
 
 const TABS: { key: StatementType; label: string }[] = [
@@ -107,6 +131,10 @@ export default function MarketsPage() {
   const { ticker } = useTicker();
   const [data, setData] = useState<FinancialStatements | null>(null);
   const [tab, setTab] = useState<StatementType>("income_statement");
+  const [viewTab, setViewTab] = useState<ViewTab>("overview");
+  const [overview, setOverview] = useState<MarketOverviewResponse | null>(null);
+  const [sectors, setSectors] = useState<SectorHeat[]>([]);
+  const [selectedHeatmapIndex, setSelectedHeatmapIndex] = useState("sp500");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -119,6 +147,17 @@ export default function MarketsPage() {
       })
       .catch(() => setLoading(false));
   }, [ticker]);
+
+  useEffect(() => {
+    fetch("/api/market/overview")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setOverview(d))
+      .catch(() => setOverview(null));
+    fetch("/api/market/sectors")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((d) => setSectors(Array.isArray(d) ? d : []))
+      .catch(() => setSectors([]));
+  }, []);
 
   if (loading)
     return (
@@ -137,7 +176,7 @@ export default function MarketsPage() {
       return vals.some(([, v]) => v != null);
     })
     .map((r) => ({
-      date: String(r.asOfDate || "").slice(0, 10),
+      date: String((r.asOfDate || r.period || "")).slice(0, 10),
       periodType: String(r.periodType || ""),
       data: r,
     }))
@@ -223,16 +262,107 @@ export default function MarketsPage() {
 
   const filteredRows = rowDefs.filter(rowHasData);
 
+  function renderOverviewCard(title: string, items: OverviewItem[] | undefined) {
+    const indexMap: Record<string, string> = {
+      "S&P 500": "sp500",
+      NASDAQ: "nasdaq100",
+      KOSPI: "kospi",
+      "FTSE 100": "ftse100",
+    };
+    return (
+      <div className="bg-bg-card border border-border rounded-lg p-4">
+        <h3 className="text-text-secondary text-sm font-semibold mb-3">{title}</h3>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+          {(items || []).map((item) => (
+            <div
+              key={`${title}-${item.symbol}`}
+              className="bg-bg-primary border border-border rounded-md p-3"
+              style={{ cursor: title === "Global Indices" ? "pointer" : "default" }}
+              onClick={() => {
+                if (title !== "Global Indices") return;
+                const target = indexMap[item.name];
+                if (target) {
+                  setSelectedHeatmapIndex(target);
+                  document.getElementById("heatmap-section")?.scrollIntoView({ behavior: "smooth" });
+                }
+              }}
+            >
+              <div className="text-text-muted text-xs">{item.name}</div>
+              <div className="text-text-primary font-mono font-semibold">{item.price?.toLocaleString?.() ?? "—"}</div>
+              <div className={`font-mono text-xs ${item.change_pct >= 0 ? "text-accent-green" : "text-accent-red"}`}>
+                {item.change_pct >= 0 ? "+" : ""}
+                {item.change_pct?.toFixed?.(2)}%
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div>
       <h1 className="text-2xl font-bold mb-4">
-        <span className="text-accent-green">{ticker}</span> Financial Statements
+        <span className="text-accent-green">{ticker}</span> Markets
       </h1>
 
+      {/* Top Tabs */}
+      <div className="flex gap-1 mb-4 bg-bg-card rounded-lg p-1 w-fit">
+        {[
+          { key: "overview", label: "Market Overview" },
+          { key: "statements", label: "Financial Statements" },
+        ].map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setViewTab(t.key as ViewTab)}
+            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+              viewTab === t.key ? "bg-accent-green text-bg-primary" : "text-text-secondary hover:text-text-primary"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {viewTab === "overview" ? (
+        <div className="space-y-4">
+          {renderOverviewCard("Global Indices", overview?.indices)}
+          <HeatmapSection selectedIndex={selectedHeatmapIndex} onSelectIndex={setSelectedHeatmapIndex} />
+          <div className="bg-bg-card border border-border rounded-lg p-4">
+            <h3 className="text-text-secondary text-sm font-semibold mb-3">Sector Performance</h3>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+              {sectors.map((sector) => (
+                <div
+                  key={sector.etf}
+                  className="rounded-md p-3 flex flex-col items-center justify-center border border-border"
+                  style={{
+                    background:
+                      sector.change_pct >= 0
+                        ? `rgba(0, 212, 170, ${Math.min(Math.abs(sector.change_pct) / 5, 0.6)})`
+                        : `rgba(255, 71, 87, ${Math.min(Math.abs(sector.change_pct) / 5, 0.6)})`,
+                  }}
+                >
+                  <span className="text-xs font-semibold text-text-primary">{sector.sector}</span>
+                  <span className={`text-sm font-mono font-bold ${sector.change_pct >= 0 ? "text-accent-green" : "text-accent-red"}`}>
+                    {sector.change_pct >= 0 ? "+" : ""}
+                    {sector.change_pct}%
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+          {renderOverviewCard("Commodities", overview?.commodities)}
+          {renderOverviewCard("Popular ETFs", overview?.popular_etfs)}
+          {renderOverviewCard("Bonds", overview?.bonds)}
+          {renderOverviewCard("Crypto", overview?.crypto)}
+          {renderOverviewCard("FX", overview?.fx)}
+        </div>
+      ) : (
+        <>
       {/* Unit Note */}
       <div className="text-text-muted text-xs mb-3 font-mono">Unit: Millions USD (except per-share data)</div>
 
-      {/* Tabs */}
+      {/* Statement Tabs */}
       <div className="flex gap-1 mb-4 bg-bg-card rounded-lg p-1 w-fit">
         {TABS.map((t) => (
           <button
@@ -259,14 +389,14 @@ export default function MarketsPage() {
                 </th>
                 {periods.map((p, i) => (
                   <th key={i} className="text-right px-4 py-3 text-text-muted font-semibold whitespace-nowrap min-w-[110px]">
-                    <div className="text-text-secondary">{p.date.slice(0, 4)}</div>
-                    <div className="text-text-muted text-[10px]">{p.date}</div>
+                    <div className="text-text-secondary">{p.date && p.date !== "—" ? p.date.slice(0, 4) : `P${i + 1}`}</div>
+                    <div className="text-text-muted text-[10px]">{p.date || "—"}</div>
                   </th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {filteredRows.map((rowDef, ri) => {
+              {filteredRows.map((rowDef) => {
                 const isGrowth = rowDef.isGrowth;
                 return (
                   <tr
@@ -328,6 +458,8 @@ export default function MarketsPage() {
         <div className="bg-bg-card border border-border rounded-lg p-8 text-center text-text-muted">
           No financial data available for {ticker}
         </div>
+      )}
+        </>
       )}
     </div>
   );

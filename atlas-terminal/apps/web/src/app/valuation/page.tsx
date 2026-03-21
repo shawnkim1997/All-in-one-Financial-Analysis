@@ -51,6 +51,7 @@ type ValuationTab = "dcf" | "sensitivity" | "montecarlo" | "tornado" | "reverse"
 
 export default function ValuationPage() {
   const { ticker } = useTicker();
+  const [assetType, setAssetType] = useState<string>("equity");
   const [inputs, setInputs] = useState<DCFInputs | null>(null);
   const [consensus, setConsensus] = useState<Consensus | null>(null);
   const [dcfResult, setDcfResult] = useState<DCFResult | null>(null);
@@ -79,9 +80,11 @@ export default function ValuationPage() {
       fetch(`/api/valuation/dcf-inputs/${ticker}`).then((r) => r.ok ? r.json() : null),
       fetch(`/api/valuation/consensus/${ticker}`).then((r) => r.ok ? r.json() : null),
       fetch(`/api/valuation/smart-defaults/${ticker}`).then((r) => r.ok ? r.json() : null),
-    ]).then(([i, c, d]) => {
+      fetch(`/api/market/overview/${ticker}`).then((r) => r.ok ? r.json() : null),
+    ]).then(([i, c, d, o]) => {
       setInputs(i);
       setConsensus(c);
+      setAssetType(o?.asset_type || "equity");
       if (d?.wacc) setWacc(d.wacc);
       if (d?.terminal_growth) setTerminalGrowth(d.terminal_growth);
       if (d?.fcf_growth) setFcfGrowth(d.fcf_growth);
@@ -168,6 +171,26 @@ export default function ValuationPage() {
   }
 
   if (loading) return <div className="flex items-center justify-center h-64"><div className="text-accent-green animate-pulse font-mono">Loading...</div></div>;
+
+  if (assetType !== "equity") {
+    return (
+      <div>
+        <h1 className="text-2xl font-bold mb-6">
+          <span className="text-accent-green">{ticker}</span> Valuation
+        </h1>
+        <div className="bg-bg-card border border-border rounded-lg p-5">
+          <h3 className="text-text-secondary text-sm font-semibold mb-3">
+            {assetType === "etf" ? "ETF Valuation Mode" : "Commodity Valuation Mode"}
+          </h3>
+          <div className="text-text-secondary text-sm">
+            {assetType === "etf"
+              ? "NAV Premium/Discount, Expense 비교, Tracking Error 중심으로 평가합니다. DCF는 주식(EQUITY) 전용입니다."
+              : "Futures Curve(Contango/Backwardation), Cost of Carry 중심으로 평가합니다. DCF는 주식(EQUITY) 전용입니다."}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>

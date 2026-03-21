@@ -23,6 +23,7 @@ interface QuarterlyData {
 
 export default function EarningsPage() {
   const { ticker } = useTicker();
+  const [assetType, setAssetType] = useState<string>("equity");
   const [history, setHistory] = useState<EarningsRecord[]>([]);
   const [calendar, setCalendar] = useState<CalendarData | null>(null);
   const [quarterly, setQuarterly] = useState<QuarterlyData[]>([]);
@@ -34,15 +35,30 @@ export default function EarningsPage() {
       fetch(`/api/earnings/${ticker}/history`).then((r) => r.ok ? r.json() : null),
       fetch(`/api/earnings/${ticker}/calendar`).then((r) => r.ok ? r.json() : null),
       fetch(`/api/earnings/${ticker}/quarterly`).then((r) => r.ok ? r.json() : null),
-    ]).then(([h, c, q]) => {
+      fetch(`/api/market/overview/${ticker}`).then((r) => r.ok ? r.json() : null),
+    ]).then(([h, c, q, o]) => {
       setHistory(h?.history || []);
       setCalendar(c);
       setQuarterly(q?.quarterly || []);
+      setAssetType(o?.asset_type || "equity");
       setLoading(false);
     }).catch(() => setLoading(false));
   }, [ticker]);
 
   if (loading) return <div className="flex items-center justify-center h-64"><div className="text-accent-green animate-pulse font-mono">Loading...</div></div>;
+
+  if (assetType !== "equity") {
+    return (
+      <div>
+        <h1 className="text-2xl font-bold mb-6">
+          <span className="text-accent-green">{ticker}</span> Earnings
+        </h1>
+        <div className="bg-bg-card border border-border rounded-lg p-5 text-text-secondary text-sm">
+          해당 자산 유형({assetType})에는 Earnings 데이터가 없습니다.
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>

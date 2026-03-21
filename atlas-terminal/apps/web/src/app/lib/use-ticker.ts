@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
+import { normalizeTickerInput } from "./ticker-alias";
 
 const DEFAULT_TICKER = "AAPL";
 const STORAGE_KEY = "atlas_active_ticker";
@@ -7,7 +8,8 @@ const EVENT_NAME = "atlas-ticker-change";
 
 function getInitialTicker(): string {
   if (typeof window === "undefined") return DEFAULT_TICKER;
-  return localStorage.getItem(STORAGE_KEY) || DEFAULT_TICKER;
+  const saved = localStorage.getItem(STORAGE_KEY) || DEFAULT_TICKER;
+  return normalizeTickerInput(saved);
 }
 
 export function useTicker() {
@@ -23,7 +25,7 @@ export function useTicker() {
   }, []);
 
   const setTicker = useCallback((val: string) => {
-    const upper = val.trim().toUpperCase();
+    const upper = normalizeTickerInput(val);
     if (!upper) return;
     setTickerState(upper);
     localStorage.setItem(STORAGE_KEY, upper);

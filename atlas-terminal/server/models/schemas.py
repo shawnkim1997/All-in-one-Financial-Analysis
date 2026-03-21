@@ -75,6 +75,7 @@ class PortfolioPositionCreate(BaseModel):
     quantity: float
     avg_price: float
     currency: str = "USD"
+    exchange: str = ""
     source: str = "manual"
 
 
@@ -182,6 +183,7 @@ class PortfolioPosition(BaseModel):
     quantity: float
     avg_price: float
     currency: str = "USD"
+    exchange: str = ""
     source: str = "manual"
     current_price: Optional[float] = None
     market_value: Optional[float] = None

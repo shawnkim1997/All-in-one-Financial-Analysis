@@ -17,6 +17,7 @@ interface RadarData {
 
 export default function ResearchPage() {
   const { ticker } = useTicker();
+  const [assetType, setAssetType] = useState<string>("equity");
   const [piotroski, setPiotroski] = useState<PiotroskiData | null>(null);
   const [radar, setRadar] = useState<RadarData | null>(null);
   const [aiAnalysis, setAiAnalysis] = useState<string>("");
@@ -28,9 +29,11 @@ export default function ResearchPage() {
     Promise.all([
       fetch(`/api/market/piotroski/${ticker}`).then((r) => r.ok ? r.json() : null),
       fetch(`/api/market/radar/${ticker}`).then((r) => r.ok ? r.json() : null),
-    ]).then(([p, r]) => {
+      fetch(`/api/market/overview/${ticker}`).then((r) => r.ok ? r.json() : null),
+    ]).then(([p, r, o]) => {
       setPiotroski(p);
       setRadar(r);
+      setAssetType(o?.asset_type || "equity");
       setLoading(false);
     }).catch(() => setLoading(false));
   }, [ticker]);
@@ -79,6 +82,7 @@ export default function ResearchPage() {
         <span className="text-accent-green">{ticker}</span> Research
       </h1>
 
+      {assetType === "equity" ? (
       <div className="grid grid-cols-2 gap-4 mb-6">
         {/* Piotroski F-Score */}
         <div className="bg-bg-card border border-border rounded-lg p-5">
@@ -127,6 +131,23 @@ export default function ResearchPage() {
           )}
         </div>
       </div>
+      ) : assetType === "etf" ? (
+        <div className="bg-bg-card border border-border rounded-lg p-5 mb-6">
+          <h3 className="text-text-secondary text-sm font-semibold mb-3">ETF Research</h3>
+          <div className="text-text-secondary text-sm">
+            Holdings Analysis, Sector Breakdown, Overlap Analysis를 우선 제공합니다.
+            Piotroski/F-Score 및 기업 재무 레이더는 ETF에 적용되지 않습니다.
+          </div>
+        </div>
+      ) : (
+        <div className="bg-bg-card border border-border rounded-lg p-5 mb-6">
+          <h3 className="text-text-secondary text-sm font-semibold mb-3">Commodity Research</h3>
+          <div className="text-text-secondary text-sm">
+            Seasonal Analysis와 Supply/Demand 요인을 중심으로 분석합니다.
+            주식 전용 지표(F-Score, DuPont)는 표시하지 않습니다.
+          </div>
+        </div>
+      )}
 
       {/* AI Analysis */}
       <div className="bg-bg-card border border-border rounded-lg p-5">

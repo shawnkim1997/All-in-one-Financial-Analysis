@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, useEffect } from "react";
+import { normalizeTickerInput } from "../lib/ticker-alias";
 
 const NAV_ITEMS = [
   { href: "/", label: "Overview", icon: "📊" },
@@ -11,6 +12,7 @@ const NAV_ITEMS = [
   { href: "/markets", label: "Markets", icon: "🌍" },
   { href: "/earnings", label: "Earnings", icon: "📅" },
   { href: "/news", label: "News", icon: "📰" },
+  { href: "/screener", label: "Screener", icon: "🎯" },
   { href: "/portfolio", label: "Portfolio", icon: "💼" },
   { href: "/filings", label: "Filings", icon: "📑" },
 ];
@@ -33,7 +35,7 @@ export function Sidebar() {
   }, []);
 
   function handleSearch() {
-    const val = input.trim().toUpperCase();
+    const val = normalizeTickerInput(input);
     if (val) {
       setTickerLocal(val);
       localStorage.setItem("atlas_active_ticker", val);
