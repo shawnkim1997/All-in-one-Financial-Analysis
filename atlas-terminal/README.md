@@ -28,7 +28,14 @@ npm run dev
 
 ## Recent Updates
 
-- Added multi-asset analysis branching across Overview/Research/Valuation/Earnings for equity, ETF, and commodity futures.
-- Implemented commodity and ETF market widgets, plus index-level stock heatmap with interactive index switching.
-- Upgraded portfolio OCR with reverse-engineering logic, exchange selection (including SMSN -> `SMSN.L`), and inline edit/delete flows.
-- Added portfolio exchange-aware recalculation and FX conversion matrix support for multi-currency display.
+**2026-03-24**
+
+- **Macro:** Global Macro & Smart Money dashboard (`/macro`), Recharts widgets, FastAPI `/api/macro/quadrant`, `/yield-fx`, `/smart-money` (FRED + yfinance + OECD/DBnomics).
+- **Stability:** Sidebar `dynamic(..., ssr: false)`; `useTicker` hydration-safe init; `app/error.tsx`; macro/research layouts use Tailwind grid (removed `react-grid-layout`).
+- **News / Filings:** Iframe fallback for blocked publishers (e.g. Yahoo); SEC filings show plain text when HTML snapshot cache is absent.
+
+**Earlier**
+
+- Multi-asset analysis branching across Overview/Research/Valuation/Earnings for equity, ETF, and commodity futures.
+- Commodity and ETF market widgets; index-level stock heatmap with interactive index switching.
+- Portfolio OCR upgrades, exchange selection (e.g. SMSN → `SMSN.L`), inline edit/delete; exchange-aware recalculation and FX matrix for multi-currency display.

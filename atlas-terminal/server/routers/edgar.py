@@ -19,15 +19,32 @@ router = APIRouter()
 async def get_sections(
     ticker: str,
     email: str = Query(..., description="SEC EDGAR fair-access email"),
+    include_html: bool = Query(
+        False,
+        description="Include original HTML (with section anchors) for iframe viewing",
+    ),
 ):
     """Return cleaned Item 1A, 3, 7, 8, 9A texts for *ticker*.
 
     If the sections are already cached locally the download is skipped.
+    When *include_html* is true, the response includes ``html`` (wrapped 10-K
+    slice with ``id=atlas-item7`` etc. for in-page scrolling).
     """
     try:
-        from server.services.sec_parser import get_10k_sections
+        from server.services.sec_parser import (
+            download_and_extract_all_items,
+            get_10k_sections,
+            load_10k_html_slice,
+        )
 
         sections, status = get_10k_sections(ticker.upper(), email)
+        html_payload = ""
+        if include_html:
+            html_payload = load_10k_html_slice(ticker.upper()) or ""
+            if not html_payload:
+                sections = download_and_extract_all_items(ticker.upper(), email)
+                status = "downloaded"
+                html_payload = load_10k_html_slice(ticker.upper()) or ""
         return EdgarSectionsResponse(
             status=status,
             item1a=sections.get("item1a", ""),
@@ -35,6 +52,7 @@ async def get_sections(
             item7=sections.get("item7", ""),
             item8=sections.get("item8", ""),
             item9a=sections.get("item9a", ""),
+            html=html_payload,
         )
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

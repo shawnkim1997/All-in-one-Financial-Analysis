@@ -56,6 +56,8 @@ export default function TechnicalPage() {
   // Render chart using lightweight-charts
   useEffect(() => {
     if (!chartRef.current || bars.length === 0) return;
+    // v5 typings omit series helpers; runtime still exposes addCandlestickSeries etc.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let chart: any = null;
     (async () => {
       try {

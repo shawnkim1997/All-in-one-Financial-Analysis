@@ -195,6 +195,23 @@ async def financial_trend(ticker: str):
         return {"years": [], "revenue": [], "net_income": [], "operating_margin": [], "fcf": []}
 
 
+@router.get("/peers/{ticker}", summary="Peer valuation multiples (sector bucket)")
+async def peer_valuation_multiples(ticker: str):
+    """P/E, P/B, P/S, EV/EBITDA vs. a small industry peer set (yfinance)."""
+    try:
+        from server.services.peer_comparison_service import build_peer_comparison
+
+        return build_peer_comparison(ticker)
+    except Exception:
+        return {
+            "ticker": ticker.upper(),
+            "sector": "—",
+            "industry": "—",
+            "averages": {"pe": None, "pb": None, "ps": None, "ev_ebitda": None},
+            "peers": [],
+        }
+
+
 @router.get("/comps", summary="Industry comparable companies")
 async def industry_comps(tickers: str = Query(..., description="Comma-separated tickers")):
     try:
@@ -432,6 +449,28 @@ async def piotroski_score(ticker: str):
         return {"total": 0, "details": {}, "score": 0}
 
 
+@router.get("/quote/{ticker}", summary="Quick quote: price and session change %")
+async def quick_quote(ticker: str):
+    """Used for news headline ticker mentions (day session move)."""
+    try:
+        import yfinance as yf
+
+        info = (yf.Ticker(ticker.upper()).info) or {}
+        ch = _safe_float(info.get("regularMarketChangePercent"))
+        if ch is None:
+            p = _safe_float(info.get("regularMarketPrice") or info.get("currentPrice"))
+            prev = _safe_float(info.get("regularMarketPreviousClose") or info.get("previousClose"))
+            if p is not None and prev and prev != 0:
+                ch = (p - prev) / prev * 100
+        return {
+            "ticker": ticker.upper(),
+            "current_price": _safe_float(info.get("regularMarketPrice") or info.get("currentPrice")),
+            "change_pct": round(ch, 2) if ch is not None else None,
+        }
+    except Exception:
+        return {"ticker": ticker.upper(), "current_price": None, "change_pct": None}
+
+
 @router.get("/sankey/{ticker}", summary="Income statement Sankey data")
 async def sankey_data(ticker: str):
     try:
@@ -459,9 +498,15 @@ async def sankey_data(ticker: str):
             {"name": "Tax & Other", "value": abs(tax_other)},
             {"name": "Net Income", "value": ni},
         ]
-        return {"nodes": nodes}
+        try:
+            from server.services.research_dashboard import sankey_nivo_for_ticker
+
+            nivo = sankey_nivo_for_ticker(ticker)
+        except Exception:
+            nivo = {"nodes": [], "links": []}
+        return {"nodes": nodes, "nivo": nivo}
     except Exception:
-        return {"nodes": []}
+        return {"nodes": [], "nivo": {"nodes": [], "links": []}}
 
 
 @router.get("/radar/{ticker}", summary="Radar chart metrics")

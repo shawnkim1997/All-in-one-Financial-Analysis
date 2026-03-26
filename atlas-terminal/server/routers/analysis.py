@@ -4,11 +4,14 @@ Direct Gemini API calls without depending on Streamlit app module.
 
 import json
 import logging
-from typing import Optional
+import os
+import re
+from typing import Any, Dict, List
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+
+from server.models.schemas import AnomalyExplainRequest, AnomalyExplainResponse
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +32,12 @@ class SimpleQuestionRequest(BaseModel):
     api_key: str = ""
 
 
-def _call_gemini(api_key: str, prompt: str, max_tokens: int = 4096) -> str:
+def _call_gemini(
+    api_key: str,
+    prompt: str,
+    max_tokens: int = 4096,
+    temperature: float = 0.7,
+) -> str:
     """Call Gemini API directly and return text response."""
     import urllib.request
     import urllib.error
@@ -38,7 +46,7 @@ def _call_gemini(api_key: str, prompt: str, max_tokens: int = 4096) -> str:
 
     payload = json.dumps({
         "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.7}
+        "generationConfig": {"maxOutputTokens": max_tokens, "temperature": temperature},
     }).encode("utf-8")
 
     req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
@@ -57,6 +65,88 @@ def _call_gemini(api_key: str, prompt: str, max_tokens: int = 4096) -> str:
         raise HTTPException(status_code=e.code, detail=f"Gemini API error: {body[:200]}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Gemini call failed: {e}")
+
+
+def _build_anomaly_filing_context(
+    ticker: str,
+    email: str,
+    filing_focus: str,
+    display_name: str,
+    account_key: str,
+) -> str:
+    from server.services.sec_parser import get_10k_sections
+    from server.services.text_chunker import smart_chunk
+
+    sections, _ = get_10k_sections(ticker.upper(), email.strip())
+    focus = (filing_focus or "10k_mda").lower()
+    if focus == "risk":
+        raw = "\n\n".join(
+            p
+            for p in (
+                sections.get("item1a", ""),
+                sections.get("item9a", ""),
+                sections.get("item3", ""),
+            )
+            if p
+        )
+    else:
+        raw = sections.get("item7", "") or ""
+
+    if not raw.strip():
+        return ""
+
+    hint = f"{display_name or ''} {account_key or ''}".strip()
+    if hint:
+        tokens = [t.lower() for t in re.split(r"[\s_/]+", hint) if len(t) > 2]
+        if tokens:
+            paras = [p.strip() for p in re.split(r"\n\s*\n", raw) if p.strip()]
+            if not paras:
+                paras = [raw]
+            scored: List[tuple[int, str]] = []
+            for para in paras:
+                pl = para.lower()
+                score = sum(1 for t in tokens if t in pl)
+                scored.append((score, para))
+            scored.sort(key=lambda x: (-x[0], -len(x[1])))
+            priority = "\n\n".join(p for _, p in scored[:15])
+            if priority.strip():
+                raw = priority
+
+    return smart_chunk(raw, max_chars=14000)
+
+
+def _parse_llm_json_object(text: str) -> Dict[str, Any]:
+    s = (text or "").strip()
+    if s.startswith("```"):
+        s = re.sub(r"^```(?:json)?\s*", "", s, flags=re.IGNORECASE)
+        s = re.sub(r"\s*```\s*$", "", s)
+    return json.loads(s)
+
+
+def _anomaly_response_from_parsed(obj: Dict[str, Any]) -> AnomalyExplainResponse:
+    cites = obj.get("citations") or []
+    norm_cites: List[Dict[str, str]] = []
+    if isinstance(cites, list):
+        for c in cites:
+            if isinstance(c, dict):
+                norm_cites.append(
+                    {
+                        "excerpt": str(c.get("excerpt", ""))[:2000],
+                        "context": str(c.get("context", ""))[:500],
+                    }
+                )
+    causes = obj.get("likely_causes") or []
+    if not isinstance(causes, list):
+        causes = []
+    conf = str(obj.get("confidence", "medium")).lower()
+    if conf not in ("high", "medium", "low"):
+        conf = "medium"
+    return AnomalyExplainResponse(
+        summary=str(obj.get("summary", ""))[:8000],
+        likely_causes=[str(x) for x in causes][:20],
+        citations=norm_cites[:15],
+        confidence=conf,
+    )
 
 
 def _get_financial_context(ticker: str) -> str:
@@ -200,3 +290,88 @@ async def extract_financials(req: AnalysisRequest):
     context = _get_financial_context(req.ticker.upper())
     result = _call_gemini(api_key, f"Summarize the key financial data for analysis:\n\n{context}")
     return {"ticker": req.ticker.upper(), "financials": result}
+
+
+@router.post(
+    "/anomaly-explain",
+    response_model=AnomalyExplainResponse,
+    summary="Explain YoY anomaly from 10-K text (strict JSON)",
+)
+async def anomaly_explain(req: AnomalyExplainRequest):
+    """Use Item 7 / risk sections plus Gemini to explain a flagged line item."""
+    api_key = (req.api_key or "").strip()
+    if not api_key:
+        raise HTTPException(status_code=400, detail="Gemini API key required.")
+
+    email = (req.sec_email or os.getenv("SEC_EDGAR_EMAIL") or "").strip()
+    if not email:
+        raise HTTPException(
+            status_code=400,
+            detail="SEC fair-access email required (pass sec_email or set SEC_EDGAR_EMAIL).",
+        )
+
+    try:
+        ctx = _build_anomaly_filing_context(
+            req.ticker,
+            email,
+            req.filing_focus,
+            req.display_name,
+            req.account_key,
+        )
+    except Exception as exc:
+        logger.exception("anomaly-explain filing load failed")
+        raise HTTPException(
+            status_code=502,
+            detail=f"Could not load SEC filing text: {exc}",
+        ) from exc
+
+    if not ctx:
+        raise HTTPException(
+            status_code=404,
+            detail="No 10-K section text available for this ticker.",
+        )
+
+    mag = float(req.magnitude_pct or 0.0)
+    dir_lbl = "increase" if (req.direction or "").lower() == "up" else "decrease"
+    prompt = f"""You are a securities analyst. The user flagged a large year-over-year change in a financial statement line item (from automated screening — do not recompute numbers).
+
+Ticker: {req.ticker.upper()}
+Line item (account key): {req.account_key or "unknown"}
+Display name: {req.display_name or "unknown"}
+Direction: {dir_lbl} (approx. {mag:.1f}% YoY — context only).
+
+Below is excerpted SEC filing text. Infer plausible qualitative explanations.
+
+--- FILING EXCERPT ---
+{ctx}
+--- END EXCERPT ---
+
+Output rules:
+- Single JSON object only. No markdown, no code fences, no surrounding text.
+- Do not invent new numerical results.
+- Required JSON shape:
+{{
+  "summary": "2-4 sentences",
+  "likely_causes": ["short strings"],
+  "citations": [{{"excerpt": "quote from excerpt", "context": "Item 7 / Item 1A / etc."}}],
+  "confidence": "high" | "medium" | "low"
+}}
+"""
+
+    raw = ""
+    try:
+        raw = _call_gemini(api_key, prompt, max_tokens=2048, temperature=0.2)
+        parsed = _parse_llm_json_object(raw)
+        return _anomaly_response_from_parsed(parsed)
+    except json.JSONDecodeError:
+        return AnomalyExplainResponse(
+            summary="The model returned non-JSON; raw output is attached in citations.",
+            likely_causes=[],
+            citations=[{"excerpt": (raw or "")[:1500], "context": "raw model output"}],
+            confidence="low",
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("anomaly-explain Gemini failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc

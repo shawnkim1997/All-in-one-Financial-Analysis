@@ -1,8 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { Sidebar } from "./components/sidebar";
-import { TickerBar } from "./components/ticker-bar";
-import { ChatPanel } from "./components/chat-panel";
+import { AppShell } from "./components/app-shell";
 
 export const metadata: Metadata = {
   title: "ATLAS Terminal",
@@ -19,15 +17,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           rel="stylesheet"
         />
       </head>
-      <body>
-        <TickerBar />
-        <div className="flex pt-[52px] min-h-screen">
-          <Sidebar />
-          <main className="flex-1 ml-[260px] mr-[380px] p-7 bg-bg-primary min-h-[calc(100vh-52px)] transition-all duration-200">
-            {children}
-          </main>
-          <ChatPanel />
-        </div>
+      <body className="min-h-screen antialiased" suppressHydrationWarning>
+        <AppShell>{children}</AppShell>
       </body>
     </html>
   );

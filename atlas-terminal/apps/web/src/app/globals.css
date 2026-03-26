@@ -21,6 +21,53 @@ body {
   font-family: "Inter", system-ui, sans-serif;
 }
 
+:root {
+  --text-primary: #f3f4f6;
+  --text-secondary: #9ca3af;
+  --border-color: #2a2a3a;
+  --bg-card: #1a1a26;
+}
+
+.sec-viewer-container {
+  font-size: 0.875rem;
+  line-height: 1.65;
+  color: var(--text-primary);
+  background: transparent;
+}
+
+.sec-viewer-container [id^="sec-item-"] {
+  scroll-margin-top: 0.75rem;
+}
+
+.sec-viewer-container,
+.sec-viewer-container * {
+  background-color: transparent !important;
+  color: var(--text-primary) !important;
+}
+
+.sec-viewer-container a {
+  color: #4da6ff !important;
+  text-decoration: underline;
+}
+
+.sec-viewer-container table {
+  border-collapse: collapse;
+  width: max-content;
+  max-width: none;
+}
+
+.sec-viewer-container th,
+.sec-viewer-container td {
+  border: 1px solid var(--border-color) !important;
+  padding: 0.35rem 0.5rem !important;
+  vertical-align: top;
+}
+
+.sec-viewer-container img {
+  max-width: 100%;
+  height: auto;
+}
+
 ::-webkit-scrollbar {
   width: 6px;
 }

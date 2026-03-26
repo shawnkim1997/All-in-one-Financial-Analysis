@@ -6,7 +6,9 @@ and provides the static lookup tables for companies and sectors.
 """
 
 from enum import Enum
-from typing import List, Tuple
+from typing import List, Literal, Optional, Tuple
+
+FilingJurisdiction = Literal["SEC", "DART", "EDINET"]
 
 # ---------------------------------------------------------------------------
 # Company reference data
@@ -128,6 +130,38 @@ def get_global_ticker(ticker: str, market: str) -> str:
     if "UK" in m or "LSE" in m:
         return t + ".L"
     return t
+
+
+def infer_filing_jurisdiction(ticker: str) -> FilingJurisdiction:
+    """Route Filings UI: Korean listings use DART, Japanese use EDINET, else SEC."""
+    t = (ticker or "").strip().upper()
+    if t.endswith(".KS") or t.endswith(".KQ"):
+        return "DART"
+    if t.endswith(".T"):
+        return "EDINET"
+    return "SEC"
+
+
+def korean_stock_code_from_ticker(ticker: str) -> Optional[str]:
+    """Return 6-digit KRX stock code from ``005930.KS`` / ``005930.KQ``, else None."""
+    t = (ticker or "").strip().upper()
+    if not (t.endswith(".KS") or t.endswith(".KQ")):
+        return None
+    base = t.rsplit(".", 1)[0].strip()
+    if base.isdigit() and len(base) == 6:
+        return base
+    return None
+
+
+def japanese_sec_code_from_ticker(ticker: str) -> Optional[str]:
+    """Return EDINET 5-digit security code from ``7203.T`` → ``72030`` (4-digit + 0)."""
+    t = (ticker or "").strip().upper()
+    if not t.endswith(".T"):
+        return None
+    base = t.rsplit(".", 1)[0].strip()
+    if base.isdigit() and len(base) == 4:
+        return base + "0"
+    return None
 
 
 def infer_market_from_ticker(ticker: str) -> str:

@@ -15,6 +15,7 @@ interface Position {
   method?: string;
   avg_price_currency?: string;
   stock_currency?: string;
+  currency?: string;
   account_currency?: string;
   current_value_account?: number;
   total_pnl?: number;
@@ -61,7 +62,7 @@ export default function PortfolioPage() {
       const opts = Array.isArray(data?.options) ? data.options : [];
       if (opts.length > 0) {
         setExchangeOptions((prev) => ({ ...prev, [rowKey]: opts }));
-        const def = opts.find((o) => o.default) || opts[0];
+        const def = opts.find((o: { default?: boolean; exchange: string }) => o.default) || opts[0];
         setExchangeSelections((prev) => ({ ...prev, [rowKey]: def.exchange }));
       }
     });

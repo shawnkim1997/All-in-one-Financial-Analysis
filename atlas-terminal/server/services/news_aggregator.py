@@ -1,186 +1,151 @@
-"""News aggregation from Finviz RSS and Google News RSS.
+"""News aggregation: Finviz (HTML table), Google News RSS, Yahoo Finance RSS.
 
-Fetches, deduplicates, and sorts financial news articles for a given
-ticker/company combination.  No API keys required -- uses public RSS feeds.
+Single module used by :mod:`server.routers.news` — no duplicated fetch logic.
 """
 
-import re
-import time
-import xml.etree.ElementTree as ET
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
-from urllib.request import Request, urlopen
-from urllib.error import URLError
-from email.utils import parsedate_to_datetime
+from __future__ import annotations
 
+import re
+from typing import Any, Dict, List
+from urllib.parse import quote_plus
 
 _USER_AGENT = "ATLAS-Terminal/1.0 (news aggregator)"
-_TIMEOUT_SEC = 10
 
 
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
+def _dedup_merge(items: List[Dict[str, str]], max_n: int) -> List[Dict[str, str]]:
+    seen: set = set()
+    out: List[Dict[str, str]] = []
+    for it in items:
+        t = (it.get("title") or "").strip().lower()
+        if not t or t in seen:
+            continue
+        seen.add(t)
+        out.append(it)
+        if len(out) >= max_n:
+            break
+    return out
 
-def _fetch_xml(url: str) -> Optional[str]:
-    """Fetch a URL and return its body as a string, or ``None`` on error."""
+
+def fetch_finviz_scrape(ticker: str) -> List[Dict[str, str]]:
+    """Scrape Finviz quote page news table (BeautifulSoup)."""
+    import requests
+    from bs4 import BeautifulSoup
+
+    if not ticker or not ticker.strip():
+        return []
+    url = f"https://finviz.com/quote.ashx?t={ticker.strip().upper()}&ty=c&p=d&b=1"
+    headers = {"User-Agent": _USER_AGENT}
     try:
-        req = Request(url, headers={"User-Agent": _USER_AGENT})
-        with urlopen(req, timeout=_TIMEOUT_SEC) as resp:
-            return resp.read().decode("utf-8", errors="replace")
-    except (URLError, OSError, Exception):
-        return None
+        resp = requests.get(url, headers=headers, timeout=10)
+        resp.raise_for_status()
+    except Exception:
+        return []
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+    news_table = soup.find(id="news-table")
+    if not news_table:
+        return []
+
+    items: List[Dict[str, str]] = []
+    current_date = ""
+    for row in news_table.find_all("tr"):
+        cells = row.find_all("td")
+        if len(cells) < 2:
+            continue
+        date_cell = cells[0].get_text(strip=True)
+        if len(date_cell) > 8:
+            current_date = date_cell
+        else:
+            current_date = (
+                current_date.split(" ")[0] + " " + date_cell if current_date else date_cell
+            )
+
+        link_tag = cells[1].find("a")
+        if not link_tag:
+            continue
+        title = link_tag.get_text(strip=True)
+        href = link_tag.get("href", "")
+        source_span = cells[1].find("span")
+        source = source_span.get_text(strip=True) if source_span else "Finviz"
+
+        items.append({
+            "title": title,
+            "source": source,
+            "url": href,
+            "published_at": current_date,
+            "summary": "",
+        })
+    return items[:20]
 
 
-def _parse_rss_items(xml_text: str) -> List[Dict[str, Any]]:
-    """Parse standard RSS 2.0 ``<item>`` elements into dicts."""
-    items: List[Dict[str, Any]] = []
-    if not xml_text:
-        return items
+def _feedparser_entries(url: str, default_source: str) -> List[Dict[str, str]]:
+    import feedparser  # noqa: WPS433
+
+    items: List[Dict[str, str]] = []
     try:
-        root = ET.fromstring(xml_text)
-    except ET.ParseError:
+        feed = feedparser.parse(url)
+    except Exception:
         return items
 
-    for item in root.iter("item"):
-        title = (item.findtext("title") or "").strip()
-        link = (item.findtext("link") or "").strip()
-        pub_date_str = (item.findtext("pubDate") or "").strip()
-        description = (item.findtext("description") or "").strip()
-        source = (item.findtext("source") or "").strip()
-
-        pub_dt: Optional[datetime] = None
-        if pub_date_str:
-            try:
-                pub_dt = parsedate_to_datetime(pub_date_str)
-            except (ValueError, TypeError):
-                pass
-
+    for e in getattr(feed, "entries", [])[:25]:
+        title = (e.get("title") or "").strip()
+        link = (e.get("link") or e.get("id") or "").strip()
+        pub = (e.get("published") or e.get("updated") or "").strip()
+        src = default_source
+        so = e.get("source")
+        if so:
+            if isinstance(so, dict):
+                src = (so.get("title") or default_source).strip()
+            else:
+                src = str(so).strip() or default_source
         if title and link:
             items.append({
                 "title": title,
-                "link": link,
-                "published": pub_dt.isoformat() if pub_dt else pub_date_str,
-                "published_dt": pub_dt,
-                "description": description[:500] if description else "",
-                "source": source,
+                "source": src,
+                "url": link,
+                "published_at": pub,
+                "summary": (e.get("summary") or "")[:500],
             })
     return items
 
 
-def _dedup_by_title(articles: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Remove duplicate articles based on normalised title."""
-    seen: set = set()
-    unique: List[Dict[str, Any]] = []
-    for art in articles:
-        key = re.sub(r"\s+", " ", art["title"].lower().strip())
-        if key not in seen:
-            seen.add(key)
-            unique.append(art)
-    return unique
-
-
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
-def fetch_finviz_news(ticker: str) -> List[Dict[str, Any]]:
-    """Fetch recent news for *ticker* from the Finviz RSS feed.
-
-    Parameters
-    ----------
-    ticker:
-        Stock ticker symbol (e.g. ``'AAPL'``).
-
-    Returns
-    -------
-    list[dict]
-        Each dict has keys: ``title``, ``link``, ``published``,
-        ``description``, ``source``.
-    """
+def fetch_google_news_rss(ticker: str) -> List[Dict[str, str]]:
+    """Google News RSS for ``{ticker} stock``."""
     if not ticker or not ticker.strip():
         return []
-    url = f"https://finviz.com/quote.ashx?t={ticker.strip().upper()}&ty=c&p=d&b=1"
-    # Finviz RSS endpoint
-    rss_url = f"https://finviz.com/news_export.ashx?t={ticker.strip().upper()}"
-    xml = _fetch_xml(rss_url)
-    if not xml:
+    q = quote_plus(f"{ticker.strip().upper()} stock")
+    url = f"https://news.google.com/rss/search?q={q}&hl=en-US&gl=US&ceid=US:en"
+    return _feedparser_entries(url, "Google News")
+
+
+def fetch_yahoo_finance_rss(ticker: str) -> List[Dict[str, str]]:
+    """Yahoo Finance headline RSS for *ticker*."""
+    if not ticker or not ticker.strip():
         return []
-    items = _parse_rss_items(xml)
-    for item in items:
-        if not item.get("source"):
-            item["source"] = "Finviz"
-    return items
+    sym = ticker.strip().upper()
+    url = (
+        f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={sym}"
+        "&region=US&lang=en-US"
+    )
+    return _feedparser_entries(url, "Yahoo Finance")
 
 
-def fetch_google_news(company_name: str) -> List[Dict[str, Any]]:
-    """Fetch recent news for *company_name* from Google News RSS.
-
-    Parameters
-    ----------
-    company_name:
-        Full company name (e.g. ``'Apple Inc.'``).
-
-    Returns
-    -------
-    list[dict]
-        Same structure as :func:`fetch_finviz_news`.
-    """
-    if not company_name or not company_name.strip():
-        return []
-    # URL-encode the query
-    query = company_name.strip().replace(" ", "+")
-    rss_url = f"https://news.google.com/rss/search?q={query}+stock&hl=en-US&gl=US&ceid=US:en"
-    xml = _fetch_xml(rss_url)
-    if not xml:
-        return []
-    items = _parse_rss_items(xml)
-    for item in items:
-        if not item.get("source"):
-            item["source"] = "Google News"
-    return items
+def merge_news_for_router(ticker: str, max_articles: int = 40) -> List[Dict[str, str]]:
+    """Finviz (scrape) + Google RSS + Yahoo RSS, title-deduped, Finviz first."""
+    t = ticker.strip().upper()
+    combined: List[Dict[str, str]] = []
+    combined.extend(fetch_finviz_scrape(t))
+    combined.extend(fetch_google_news_rss(t))
+    combined.extend(fetch_yahoo_finance_rss(t))
+    return _dedup_merge(combined, max_articles)
 
 
+# Legacy names (backward compatibility if imported elsewhere)
 def aggregate_news(
     ticker: str,
-    company_name: str,
+    company_name: str = "",
     max_articles: int = 30,
 ) -> List[Dict[str, Any]]:
-    """Aggregate news from Finviz and Google News, deduplicated and sorted.
-
-    Parameters
-    ----------
-    ticker:
-        Stock ticker symbol.
-    company_name:
-        Full company name for broader search coverage.
-    max_articles:
-        Maximum number of articles to return (default 30).
-
-    Returns
-    -------
-    list[dict]
-        Deduplicated articles sorted by publication time (newest first).
-        Each dict has: ``title``, ``link``, ``published``, ``description``,
-        ``source``.
-    """
-    finviz_articles = fetch_finviz_news(ticker)
-    google_articles = fetch_google_news(company_name)
-
-    all_articles = finviz_articles + google_articles
-    unique = _dedup_by_title(all_articles)
-
-    # Sort by datetime (newest first); articles without a parseable date go last
-    def sort_key(art: Dict[str, Any]) -> float:
-        dt = art.get("published_dt")
-        if dt is not None:
-            return -dt.timestamp()
-        return float("inf")
-
-    unique.sort(key=sort_key)
-
-    # Strip internal datetime field before returning
-    for art in unique:
-        art.pop("published_dt", None)
-
-    return unique[:max_articles]
+    """Deprecated path: use :func:`merge_news_for_router`. *company_name* ignored."""
+    _ = company_name
+    return merge_news_for_router(ticker, max_articles=max_articles)

@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from bs4 import BeautifulSoup
+from bs4.element import Comment, Tag
 
 from server.services.text_chunker import clean_text_for_llm, smart_chunk
 
@@ -257,6 +258,194 @@ def get_main_10k_text(filing_dir: Path) -> str:
     return main_text
 
 
+def get_main_10k_html_path(filing_dir: Path) -> Optional[Path]:
+    """Pick the largest ``.htm`` / ``.html`` file (primary 10-K document)."""
+    best: Optional[Path] = None
+    best_size = 0
+    for path in filing_dir.rglob("*.htm*"):
+        try:
+            sz = path.stat().st_size
+            if sz > best_size:
+                best_size = sz
+                best = path
+        except OSError:
+            continue
+    return best
+
+
+def read_main_10k_html_raw(filing_dir: Path) -> str:
+    """Read raw HTML from the main filing document."""
+    path = get_main_10k_html_path(filing_dir)
+    if not path:
+        return ""
+    for enc in ("utf-8", "latin-1"):
+        try:
+            return path.read_text(encoding=enc, errors="replace")
+        except Exception:
+            continue
+    return ""
+
+
+def _strip_scripts_keep_html(html: str) -> str:
+    """Remove ``<script>`` tags; keep layout/styles for readability."""
+    if not html or not html.strip():
+        return ""
+    try:
+        soup = BeautifulSoup(html, "lxml")
+    except Exception:
+        soup = BeautifulSoup(html, "html.parser")
+    for tag in soup.find_all("script"):
+        tag.decompose()
+    return str(soup)
+
+
+# Regex bundles for DOM anchor injection (first match in document order wins).
+_SEC_ITEM_INJECT_SPECS: List[tuple[str, List[re.Pattern]]] = [
+    ("sec-item-1a", [re.compile(p, re.I) for p in ITEM1A_PATTERNS] + [re.compile(r"Item\s+1A\s*[.:]", re.I)]),
+    ("sec-item-3", [re.compile(p, re.I) for p in ITEM3_PATTERNS] + [re.compile(r"Item\s+3\s*[.:]", re.I)]),
+    ("sec-item-7", [re.compile(p, re.I) for p in ITEM7_PATTERNS] + [re.compile(r"Item\s+7\s*[.:]", re.I)]),
+    ("sec-item-8", [re.compile(p, re.I) for p in ITEM8_PATTERNS] + [re.compile(r"Item\s+8\s*[.:]", re.I)]),
+    ("sec-item-9a", [re.compile(p, re.I) for p in ITEM9A_PATTERNS] + [re.compile(r"Item\s+9A\s*[.:]", re.I)]),
+]
+
+
+def _sanitize_sec_html_soup(soup: BeautifulSoup) -> None:
+    """Remove scripts and dangerous attributes; keep tables and inline formatting."""
+    for tag in soup.find_all(["script", "style", "noscript", "iframe", "object", "embed", "link"]):
+        tag.decompose()
+    for tag in soup.find_all(True):
+        if not isinstance(tag, Tag) or not tag.attrs:
+            continue
+        for attr in list(tag.attrs.keys()):
+            al = attr.lower()
+            if al.startswith("on"):
+                del tag[attr]
+                continue
+            if al == "href" and isinstance(tag.get("href"), str) and tag["href"].lower().strip().startswith(
+                "javascript:",
+            ):
+                del tag[attr]
+
+
+def _best_anchor_parent_for_text_node(text_node) -> Optional[Tag]:
+    """Pick a block-level (or heading) ancestor to host ``id`` for an Item header."""
+    p = getattr(text_node, "parent", None)
+    depth = 0
+    fallback: Optional[Tag] = None
+    while p is not None and depth < 18:
+        if not isinstance(p, Tag):
+            break
+        name = (p.name or "").lower()
+        if name in ("h1", "h2", "h3", "h4", "h5", "h6"):
+            return p
+        if name in ("p", "div", "td", "th", "li", "table", "tr"):
+            fallback = p
+        elif name in ("font",) and fallback is None:
+            fallback = p
+        elif name in ("b", "strong", "span", "a", "i", "u", "em") and fallback is None:
+            fallback = p
+        if name in ("body", "html", "[document]"):
+            break
+        p = p.parent
+        depth += 1
+    return fallback
+
+
+def inject_sec_item_anchor_ids(soup: BeautifulSoup) -> None:
+    """Set ``id=\"sec-item-*\"`` on heading-like nodes for Item 1A, 3, 7, 8, 9A."""
+    assigned: set[str] = set()
+    for text in soup.find_all(string=True):
+        if isinstance(text, Comment):
+            continue
+        text_val = str(text)
+        if not text_val.strip():
+            continue
+        for el_id, regexes in _SEC_ITEM_INJECT_SPECS:
+            if el_id in assigned:
+                continue
+            if not any(rx.search(text_val) for rx in regexes):
+                continue
+            host = _best_anchor_parent_for_text_node(text)
+            if host is None:
+                continue
+            host["id"] = el_id
+            assigned.add(el_id)
+            break
+
+
+def prepare_native_html_fragment_from_10k_raw(raw_html: str) -> str:
+    """Slice Items 1A–9A, sanitize, inject ``sec-item-*`` anchors, return body HTML fragment."""
+    if not raw_html or len(raw_html) < 100:
+        return ""
+    sliced = _slice_html_items_1a_to_9a(raw_html)
+    try:
+        soup = BeautifulSoup(sliced, "lxml")
+    except Exception:
+        soup = BeautifulSoup(sliced, "html.parser")
+    _sanitize_sec_html_soup(soup)
+    inject_sec_item_anchor_ids(soup)
+    if soup.body:
+        return soup.body.decode_contents()
+    return str(soup)
+
+
+def inject_section_anchors(html: str) -> str:
+    """Sanitize HTML and inject ``sec-item-*`` ids (DOM-preserving)."""
+    if not html or not html.strip():
+        return ""
+    try:
+        soup = BeautifulSoup(html, "lxml")
+    except Exception:
+        soup = BeautifulSoup(html, "html.parser")
+    _sanitize_sec_html_soup(soup)
+    inject_sec_item_anchor_ids(soup)
+    if soup.body:
+        return soup.body.decode_contents()
+    return str(soup)
+
+
+def normalize_cached_html_for_native_viewer(stored: str) -> str:
+    """If cache holds a legacy full document, return body inner HTML only."""
+    s = (stored or "").strip()
+    if not s:
+        return ""
+    low = s[:32].lower()
+    if "<!doctype" in low or (s.lower().startswith("<html") and "<body" in s.lower()):
+        try:
+            soup = BeautifulSoup(s, "lxml")
+            if soup.body:
+                return soup.body.decode_contents()
+        except Exception:
+            pass
+    return s
+
+
+def _html_slice_cache_path(ticker: str) -> Path:
+    _DATA_DIR.mkdir(parents=True, exist_ok=True)
+    return _DATA_DIR / f"{ticker.upper()}_10k_slice.html"
+
+
+def load_10k_html_slice(ticker: str) -> Optional[str]:
+    """Load cached HTML fragment for native viewer (legacy full-document cache supported)."""
+    p = _html_slice_cache_path(ticker)
+    if not p.exists():
+        return None
+    try:
+        raw = p.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return None
+    norm = normalize_cached_html_for_native_viewer(raw)
+    return norm if norm else None
+
+
+def save_10k_html_slice(ticker: str, html: str) -> None:
+    """Persist wrapped HTML next to JSON section cache."""
+    p = _html_slice_cache_path(ticker)
+    _DATA_DIR.mkdir(parents=True, exist_ok=True)
+    with open(p, "w", encoding="utf-8") as f:
+        f.write(html)
+
+
 # ---------------------------------------------------------------------------
 # Cache layer
 # ---------------------------------------------------------------------------
@@ -324,6 +513,12 @@ def download_and_extract_all_items(ticker: str, email: str) -> Dict[str, str]:
         "item8": clean_text_for_llm(item8 or ""),
     }
     _save_10k_to_cache(ticker, data)
+
+    raw_html = read_main_10k_html_raw(filing_dir)
+    if raw_html:
+        fragment = prepare_native_html_fragment_from_10k_raw(raw_html)
+        if fragment:
+            save_10k_html_slice(ticker, fragment)
     return data
 
 

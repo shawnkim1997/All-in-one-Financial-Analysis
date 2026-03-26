@@ -64,7 +64,8 @@ def _safe_get(info: Dict[str, Any], key: str) -> Optional[float]:
 async def financial_statements(ticker: str) -> Dict[str, Any]:
     """Return income statement, balance sheet, and cash flow for *ticker*.
 
-    Attempts yahooquery first for richer data, then falls back to yfinance.
+    Tries yfinance annual statements first, then yahooquery if empty
+    (see ``claude.md`` §2.3 — order differs from ``market_fetcher``).
     Includes up to 5 annual periods with YoY growth rates.
     """
     try:
@@ -192,6 +193,28 @@ async def financial_highlights(ticker: str) -> Dict[str, Any]:
             "debt_to_equity": None, "current_ratio": None,
             "operating_cash_flow": None, "free_cash_flow": None,
             "book_value": None, "earnings_growth": None, "revenue_growth": None,
+        }
+
+
+@router.get(
+    "/{ticker}/kpi-history",
+    summary="Quarterly KPI series for charts",
+)
+async def kpi_history(ticker: str) -> Dict[str, Any]:
+    """QoQ revenue growth, margins, ROE, FCF from quarterly statements (no LLM)."""
+    try:
+        from server.services.kpi_history_service import build_kpi_history
+
+        return build_kpi_history(ticker)
+    except Exception:
+        return {
+            "ticker": ticker.upper(),
+            "quarters": [],
+            "revenue_growth": [],
+            "operating_margin": [],
+            "net_margin": [],
+            "roe": [],
+            "fcf": [],
         }
 
 

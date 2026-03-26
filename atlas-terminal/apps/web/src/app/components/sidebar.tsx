@@ -10,6 +10,7 @@ const NAV_ITEMS = [
   { href: "/valuation", label: "Valuation", icon: "💰" },
   { href: "/technical", label: "Technical", icon: "📈" },
   { href: "/markets", label: "Markets", icon: "🌍" },
+  { href: "/macro", label: "Macro", icon: "🌐" },
   { href: "/earnings", label: "Earnings", icon: "📅" },
   { href: "/news", label: "News", icon: "📰" },
   { href: "/screener", label: "Screener", icon: "🎯" },

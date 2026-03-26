@@ -49,3 +49,4 @@ SEC-EDGAR-Filings/
 # Prompt files
 CLAUDE_CODE_PROMPT.md
 REFACTORING_PROMPT.md
+data/filings/

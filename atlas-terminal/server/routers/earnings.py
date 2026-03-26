@@ -1,8 +1,8 @@
-"""Earnings router -- earnings history, upcoming dates, and transcripts."""
+"""Earnings router -- earnings history, upcoming dates, and transcripts (FMP)."""
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 router = APIRouter()
 
@@ -65,6 +65,46 @@ async def earnings_calendar(ticker: str) -> Dict[str, Any]:
         return {"ticker": ticker.upper(), "next_earnings": None}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Earnings calendar failed: {exc}") from exc
+
+
+@router.get("/{ticker}/transcript", summary="Earnings call transcript (FMP)")
+async def earnings_transcript(
+    ticker: str,
+    year: int = Query(..., ge=1990, le=2035),
+    quarter: int = Query(..., ge=1, le=4),
+) -> Dict[str, Any]:
+    """Return one quarter of earnings call text from FMP when ``FMP_API_KEY`` is set."""
+    from server.services.fmp_client import fetch_earning_call_transcript, fmp_is_configured
+
+    if not fmp_is_configured():
+        return {
+            "ticker": ticker.upper(),
+            "year": year,
+            "quarter": quarter,
+            "available": False,
+            "message": "Set FMP_API_KEY for earnings call transcripts.",
+            "content": None,
+        }
+    rows: Optional[List[Dict[str, Any]]] = await fetch_earning_call_transcript(
+        ticker, year, quarter
+    )
+    if not rows:
+        return {
+            "ticker": ticker.upper(),
+            "year": year,
+            "quarter": quarter,
+            "available": False,
+            "message": "No transcript returned (symbol/quarter or API limit).",
+            "content": None,
+        }
+    # FMP returns list of dicts with 'content' or similar
+    return {
+        "ticker": ticker.upper(),
+        "year": year,
+        "quarter": quarter,
+        "available": True,
+        "data": rows,
+    }
 
 
 @router.get("/{ticker}/quarterly", summary="Quarterly earnings data")

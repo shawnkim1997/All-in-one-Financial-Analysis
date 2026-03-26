@@ -1,5 +1,9 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import { KpiSection, type KpiHistoryData } from "./KpiSection";
+import { PeerComparison, type PeerComparisonData } from "./PeerComparison";
+
 interface EquityOverviewProps {
   ticker: string;
   sector: Record<string, unknown> | null;
@@ -7,9 +11,27 @@ interface EquityOverviewProps {
 }
 
 export function EquityOverview({ ticker, sector, health }: EquityOverviewProps) {
-  const metrics = [
-    { label: "Sector", value: sector?.sector || "—" },
-    { label: "Industry", value: sector?.industry || "—" },
+  const [peerData, setPeerData] = useState<PeerComparisonData | null>(null);
+  const [kpiData, setKpiData] = useState<KpiHistoryData | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      fetch(`/api/market/peers/${encodeURIComponent(ticker)}`).then((r) => (r.ok ? r.json() : null)),
+      fetch(`/api/financials/${encodeURIComponent(ticker)}/kpi-history`).then((r) => (r.ok ? r.json() : null)),
+    ]).then(([p, k]) => {
+      if (!cancelled) {
+        setPeerData(p && Array.isArray(p.peers) ? p : null);
+        setKpiData(k && Array.isArray(k.quarters) ? k : null);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [ticker]);
+  const metrics: { label: string; value: string }[] = [
+    { label: "Sector", value: String(sector?.sector ?? "—") },
+    { label: "Industry", value: String(sector?.industry ?? "—") },
     { label: "Market Cap", value: sector?.market_cap ? `$${(Number(sector.market_cap) / 1e9).toFixed(1)}B` : "—" },
     { label: "P/E Ratio", value: sector?.pe_ratio != null ? Number(sector.pe_ratio).toFixed(1) : "—" },
     { label: "Beta", value: sector?.beta != null ? Number(sector.beta).toFixed(2) : "—" },
@@ -34,6 +56,7 @@ export function EquityOverview({ ticker, sector, health }: EquityOverviewProps) 
           </div>
         ))}
       </div>
+      <KpiSection data={kpiData} />
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-4">
         <Card title="Altman Z-Score" value={health?.altman_z != null ? Number(health.altman_z).toFixed(2) : "—"} />
         <Card title="Current Ratio" value={health?.current_ratio != null ? Number(health.current_ratio).toFixed(2) : "—"} />
@@ -42,13 +65,13 @@ export function EquityOverview({ ticker, sector, health }: EquityOverviewProps) 
       </div>
       <div className="bg-bg-card border border-border rounded-lg p-5">
         <h3 className="text-text-secondary text-sm font-semibold mb-3">DuPont Analysis</h3>
-        {!!health?.dupont ? (
+        {!!health?.dupont && typeof health.dupont === "object" && health.dupont !== null ? (
           <div className="space-y-2">
             {[
-              { label: "ROE", value: health.dupont.roe },
-              { label: "Net Profit Margin", value: health.dupont.npm },
-              { label: "Asset Turnover", value: health.dupont.asset_turnover },
-              { label: "Equity Multiplier", value: health.dupont.equity_multiplier },
+              { label: "ROE", value: (health.dupont as { roe?: unknown }).roe },
+              { label: "Net Profit Margin", value: (health.dupont as { npm?: unknown }).npm },
+              { label: "Asset Turnover", value: (health.dupont as { asset_turnover?: unknown }).asset_turnover },
+              { label: "Equity Multiplier", value: (health.dupont as { equity_multiplier?: unknown }).equity_multiplier },
             ].map((d) => (
               <div key={d.label} className="flex justify-between">
                 <span className="text-text-muted text-sm">{d.label}</span>
@@ -60,6 +83,7 @@ export function EquityOverview({ ticker, sector, health }: EquityOverviewProps) 
           <div className="text-text-muted">No data</div>
         )}
       </div>
+      <PeerComparison currentTicker={ticker} data={peerData} />
     </div>
   );
 }

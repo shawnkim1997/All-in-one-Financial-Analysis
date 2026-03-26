@@ -1,4 +1,7 @@
 const TICKER_ALIASES: Record<string, string> = {
+  // Equities (natural language -> Yahoo suffix)
+  samsung: "005930.KS",
+
   // Commodities (natural language -> futures ticker)
   gold: "GC=F",
   silver: "SI=F",

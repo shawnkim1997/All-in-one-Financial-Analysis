@@ -6,8 +6,8 @@ interface CommodityOverviewProps {
 }
 
 export function CommodityOverview({ ticker, data }: CommodityOverviewProps) {
-  const seasonal = data?.seasonal_pattern || {};
-  const correlations = data?.correlation_matrix || {};
+  const seasonal = (data?.seasonal_pattern ?? {}) as Record<string, unknown>;
+  const correlations = (data?.correlation_matrix ?? {}) as Record<string, unknown>;
   const related = Array.isArray(data?.related_assets) ? data.related_assets : [];
   return (
     <div className="space-y-4">
@@ -15,7 +15,7 @@ export function CommodityOverview({ ticker, data }: CommodityOverviewProps) {
         <span className="text-accent-green">{ticker}</span> Commodity Overview
       </h1>
       <div className="bg-bg-card border border-border rounded-lg p-5">
-        <div className="text-text-primary font-semibold text-lg">{data?.name || ticker}</div>
+        <div className="text-text-primary font-semibold text-lg">{String(data?.name ?? ticker)}</div>
         <div className="text-3xl font-mono font-bold text-text-primary mt-1">
           {data?.price != null ? `$${Number(data.price).toFixed(2)}` : "—"}
         </div>
@@ -39,7 +39,7 @@ export function CommodityOverview({ ticker, data }: CommodityOverviewProps) {
         <h3 className="text-text-secondary text-sm font-semibold mb-3">Seasonal Pattern (10Y avg monthly)</h3>
         <div className="grid grid-cols-3 lg:grid-cols-6 gap-2 text-xs">
           {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => {
-            const v = seasonal?.[m] ?? 0;
+            const v = Number(seasonal[String(m)] ?? 0) || 0;
             return (
               <div key={m} className="bg-bg-primary border border-border rounded p-2">
                 <div className="text-text-muted">M{m}</div>
@@ -57,13 +57,13 @@ export function CommodityOverview({ ticker, data }: CommodityOverviewProps) {
         <div className="bg-bg-card border border-border rounded-lg p-5">
           <h3 className="text-text-secondary text-sm font-semibold mb-3">Related Assets</h3>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
-            {related.map((r: Record<string, unknown>) => (
-              <div key={r.symbol} className="bg-bg-primary border border-border rounded p-3">
-                <div className="text-text-secondary text-xs">{r.symbol}</div>
+            {related.map((r: Record<string, unknown>, idx: number) => (
+              <div key={String(r.symbol ?? idx)} className="bg-bg-primary border border-border rounded p-3">
+                <div className="text-text-secondary text-xs">{String(r.symbol ?? "")}</div>
                 <div className="text-text-primary font-mono">{r.price != null ? `$${Number(r.price).toFixed(2)}` : "—"}</div>
                 <div className={`text-xs font-mono ${Number(r.change_pct || 0) >= 0 ? "text-accent-green" : "text-accent-red"}`}>
                   {Number(r.change_pct || 0) >= 0 ? "+" : ""}
-                  {r.change_pct ?? 0}%
+                  {Number(r.change_pct ?? 0)}%
                 </div>
               </div>
             ))}

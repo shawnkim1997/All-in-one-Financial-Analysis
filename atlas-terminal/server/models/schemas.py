@@ -1,7 +1,7 @@
 """Pydantic request/response schemas for ATLAS Terminal API."""
 
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any
+from typing import Any, Dict, List, Literal, Optional
 
 
 # ---------------------------------------------------------------------------
@@ -141,6 +141,108 @@ class PiotroskiResponse(BaseModel):
     used_ttm: bool = False
 
 
+class FScoreYearPoint(BaseModel):
+    """Single fiscal year pass/fail for one Piotroski criterion."""
+    year: int
+    pass_flag: bool
+
+
+class FScoreCriterionSeries(BaseModel):
+    """Three-year (or shorter) history for one F-Score criterion."""
+    key: str
+    label: str
+    history: List[FScoreYearPoint] = Field(default_factory=list)
+
+
+class DuPontTreeNode(BaseModel):
+    """One node in the DuPont ROE tree."""
+    id: str
+    label: str
+    value: float
+    unit: str = "pct"
+    avg_5y: Optional[float] = None
+    vs_5y_avg_pct: Optional[float] = None
+    trend: str = "flat"
+
+
+class DuPontTreePayload(BaseModel):
+    """ROE root with NPM, asset turnover, equity multiplier children."""
+    root: DuPontTreeNode
+    npm: DuPontTreeNode
+    asset_turnover: DuPontTreeNode
+    equity_mult: DuPontTreeNode
+
+
+class SankeyNivoNode(BaseModel):
+    """Node for @nivo/sankey."""
+    id: str
+    label: Optional[str] = None
+
+
+class SankeyNivoLink(BaseModel):
+    """Directed link for @nivo/sankey."""
+    source: str
+    target: str
+    value: float
+
+
+class SankeyGraphPayload(BaseModel):
+    """Sankey graph in Nivo-friendly shape."""
+    nodes: List[SankeyNivoNode] = Field(default_factory=list)
+    links: List[SankeyNivoLink] = Field(default_factory=list)
+
+
+class WaterfallStep(BaseModel):
+    """One bar in operating-income bridge chart."""
+    id: str
+    label: str
+    value: float
+    cumulative: float
+    step_type: str = "relative"
+
+
+class FinancialAnomalyItem(BaseModel):
+    """YoY line-item spike/drop for UI chips."""
+    account_key: str
+    display_name: str
+    prior_value: Optional[float] = None
+    current_value: Optional[float] = None
+    change_pct: Optional[float] = None
+    direction: str = "up"
+
+
+class ResearchDashboardResponse(BaseModel):
+    """Full research deep-dive payload (quant only)."""
+    ticker: str
+    fscore_total: int = 0
+    fscore_criteria: List[FScoreCriterionSeries] = Field(default_factory=list)
+    dupont_tree: Optional[DuPontTreePayload] = None
+    sankey: SankeyGraphPayload = Field(default_factory=SankeyGraphPayload)
+    waterfall: List[WaterfallStep] = Field(default_factory=list)
+    anomalies: List[FinancialAnomalyItem] = Field(default_factory=list)
+    error: Optional[str] = None
+
+
+class AnomalyExplainRequest(BaseModel):
+    """Request Gemini to explain a flagged line item using filing text."""
+    ticker: str
+    api_key: str
+    sec_email: str = Field(default="", description="SEC fair-access email; else SEC_EDGAR_EMAIL env")
+    account_key: str = ""
+    display_name: str = ""
+    direction: str = "up"
+    magnitude_pct: float = 0.0
+    filing_focus: str = Field(default="10k_mda", description="10k_mda or risk")
+
+
+class AnomalyExplainResponse(BaseModel):
+    """Strict JSON-shaped explanation from LLM."""
+    summary: str = ""
+    likely_causes: List[str] = Field(default_factory=list)
+    citations: List[Dict[str, str]] = Field(default_factory=list)
+    confidence: str = "medium"
+
+
 class SankeyData(BaseModel):
     """Income statement Sankey diagram data."""
     labels: List[str] = []
@@ -231,13 +333,19 @@ class CryptoPrice(BaseModel):
 
 
 class EdgarSectionsResponse(BaseModel):
-    """Cached or downloaded 10-K section texts."""
+    """Cached or downloaded filing section texts (SEC, DART, or EDINET)."""
+    source: Literal["sec", "dart", "edinet"] = "sec"
+    configured: bool = True
+    message: Optional[str] = None
+    links: Optional[Dict[str, str]] = None
     status: str = ""
     item1a: str = ""
     item3: str = ""
     item7: str = ""
     item8: str = ""
     item9a: str = ""
+    # When ``include_html=true``: HTML fragment for native viewer
+    html: str = ""
 
 
 class Item7Response(BaseModel):

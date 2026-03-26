@@ -24,72 +24,79 @@ ATLAS Terminal is a **full-stack financial analysis platform** that brings insti
 
 ---
 
-## Pages & Features
+## Pages & Features (12 Pages, 92 API Routes)
 
-### 📊 Overview
-Company snapshot at a glance — current price, sector, industry, market cap, P/E ratio, beta, dividend yield, 52-week range, **Altman Z-Score** (safe/grey/distress zones), and **DuPont decomposition** (ROE → NPM × Asset Turnover × Equity Multiplier).
+### 📊 Overview — Multi-Asset Intelligence
+Auto-detects asset type and renders the appropriate dashboard:
+- **Equity**: Sector/industry, market cap, P/E, beta, dividend, 52-week range, **Altman Z-Score**, **DuPont decomposition**, **KPI sparklines** (revenue growth, margins, ROE, FCF), **Peer valuation comparison** (PE/PB/PS/EV-EBITDA)
+- **ETF**: Top holdings, sector breakdown, expense ratio
+- **Commodity**: Monthly seasonal patterns, cross-commodity correlations
 
-### 🔬 Research
-AI-powered deep-dive analysis using Google Gemini. Ask natural-language questions about any company and receive structured financial insights with context from SEC filings, financial statements, and market data.
+### 🔬 Research — Quantitative Dashboard
+Grid-based research layout with five panels:
+- **F-Score Panel**: Piotroski 9-criteria history with pass/fail indicators
+- **DuPont Tree**: 3-factor ROE decomposition (NPM × Asset Turnover × Equity Multiplier)
+- **Sankey**: Income statement flow visualization (Revenue → EBIT, @nivo/sankey)
+- **Waterfall**: Operating income bridge chart (@nivo/bar)
+- **Anomaly Chips**: YoY anomaly detection with Gemini AI explanations
 
 ### 💰 Valuation — 5 Analytical Models
 
 | Tab | Description |
 |-----|-------------|
-| **DCF Model** | 2-stage discounted cash flow with smart defaults from CAPM/Beta. Adjustable WACC, terminal growth, and FCF growth sliders. Analyst consensus (target price, recommendation) displayed alongside. |
-| **Sensitivity** | WACC × Terminal Growth Rate matrix table. Center cell highlighted to show base-case intrinsic value. Instantly see how assumptions shift fair value. |
-| **Monte Carlo** | 5,000-simulation DCF with randomized inputs. Histogram visualization (red below / green above current price). Statistics: mean, median, P10/P90, probability of upside. |
-| **Tornado** | Variable impact ranking chart. Shows which input assumption (WACC, growth rate, terminal growth, margins) has the largest effect on valuation — sorted by sensitivity range. |
-| **Reverse DCF** | Solves for the implied growth rate the market is pricing in. Compares market-implied growth vs. your assumption and analyst consensus. Uses scipy's Brent root-finding method. |
+| **DCF Model** | 3-scenario discounted cash flow with smart defaults from CAPM/Beta. Adjustable WACC, terminal growth, and FCF growth sliders. Analyst consensus displayed alongside. |
+| **Sensitivity** | WACC × Terminal Growth Rate matrix table. Center cell highlighted to show base-case intrinsic value. |
+| **Monte Carlo** | 5,000-simulation DCF with randomized inputs. Histogram (red below / green above current price). P10/P90, probability of upside. |
+| **Tornado** | Variable impact ranking — which input assumption has the largest effect on valuation. |
+| **Reverse DCF** | Market-implied growth rate via scipy Brent root-finding. Compares vs your assumption and analyst consensus. |
 
 ### 📈 Technical Analysis
 - **Candlestick chart** with volume histogram (TradingView Lightweight Charts)
 - Period selector: 1MO, 3MO, 6MO, 1Y, 2Y
-- **RSI(14)** with overbought/oversold classification
-- **MACD** with signal line and histogram
-- **Bollinger Bands** — %B, bandwidth, current position
+- **RSI(14)**, **MACD**, **Bollinger Bands**, **ATR**, **ADX**
 - **Moving Averages** table — SMA/EMA 20/50/100/200 with ABOVE/BELOW signals
-- **Fibonacci retracement** levels with "near current price" highlighting
-- **ATR** (Average True Range) for volatility measurement
-- **ADX** for trend strength detection
+- **Fibonacci retracement** levels
+- **Ichimoku cloud** components
 
 ### 🌍 Financial Statements
-Institutional-style financial data table with:
 - **Income Statement**, **Balance Sheet**, **Cash Flow** tabs
-- Up to 5 annual periods with proper date headers
-- **YoY Growth** badges (green for positive, red for negative)
-- **Margin %** rows (Gross Margin, Operating Margin, Net Margin)
-- Row groups: Revenue, COGS, Gross Profit, SG&A, R&D, Operating Income, EBITDA, Net Income, EPS
-- Pipe-separated multi-key lookup to handle both yfinance and yahooquery column naming conventions
+- Up to 5 annual periods with **YoY Growth** badges (green/red)
+- **Margin %** rows (Gross, Operating, Net)
+- **Sector heatmap** (S&P 500, NASDAQ 100, KOSPI, FTSE 100 constituents)
+
+### 🌐 Macro & Cycle — Global Dashboard
+Five collapsible tabs plus three always-visible sections:
+- **Tabs**: FRED time series, Macro Cycle Heatmap (countries + assets), OECD CLI (DBnomics), Korea indicators (ECOS), Economic Calendar
+- **Global Quadrant**: Growth vs inflation Z-score scatter (4 macro regimes)
+- **Yield-FX**: US 10Y spread vs FX pairs (USD/JPY, EUR/USD, USD/KRW)
+- **Smart Money**: Copper/Gold ratio + RORO (Risk-On/Risk-Off) composite gauge
 
 ### 📅 Earnings
 - **Next earnings date** card with countdown
-- **EPS Beat/Miss** visual history — green bars for beats, red for misses, with surprise percentage
-- **Revenue & Earnings estimates** vs. actuals
-- **Quarterly breakdown** cards
+- **EPS Beat/Miss** visual history with surprise percentage
+- **Quarterly breakdown** cards (revenue, net income)
+- **Earnings transcript** (requires FMP API key)
 
 ### 📰 News Feed
 Split-view news aggregator:
-- **Left panel**: Scrollable article list (40+ articles from Finviz & Google News) with source badges and timestamps
-- **Right panel**: Article header bar + iframe embedding of original content
-- "Open Original ↗" button for sites that block iframe embedding
-- Ticker-specific filtering
+- **Left panel**: 40+ articles from Finviz, Google News, Yahoo RSS with source badges
+- **Right panel**: Article header + iframe; domain-aware handling for sites blocking iframes (Yahoo, Bloomberg, WSJ) — shows summary + Open Original
+
+### 🎯 Screener & Backtest
+- **Stock Screener**: Filter by PE, sector, dividend yield
+- **Strategy Backtest**: SMA Crossover, RSI Oversold, Buy & Hold — with candlestick chart visualization (lightweight-charts)
 
 ### 💼 Portfolio
-Position tracking with multi-currency support (USD, KRW, GBP, EUR, JPY, CNY). P&L calculation, FX-adjusted returns, and risk metrics including:
-- **VaR** (Value at Risk)
-- **Sharpe Ratio** & **Sortino Ratio**
-- **Maximum Drawdown**
-- **Beta** & **Correlation** to benchmark
+Position tracking with multi-currency support (USD, KRW, GBP, EUR, JPY, CNY). P&L calculation, FX-adjusted returns, OCR screenshot import, and risk metrics:
+- **VaR**, **Sharpe Ratio**, **Sortino Ratio**, **Maximum Drawdown**, **Beta**, **Correlation**
 
-### 📑 SEC Filings (EDGAR)
-Inline 10-K filing viewer:
-- Downloads and parses latest 10-K from SEC EDGAR
-- **5 section tabs**: Risk Factors (1A), MD&A (7), Financial Statements (8), Legal Proceedings (3), Controls & Procedures (9A)
-- Intelligent content formatting — headers detected and styled, bullets indented, paragraphs separated
-- **Word count** per section
-- **AI Summary** button — sends section text to Gemini for key risk/trend extraction
-- Section caching to avoid repeat downloads
+### 📑 Filings — Multi-Jurisdiction
+Auto-detects filing jurisdiction from ticker suffix:
+- **SEC EDGAR** (US stocks): 10-K section viewer (Items 1A, 3, 7, 8, 9A)
+- **DART** (`.KS`/`.KQ` Korean stocks): 사업보고서 sections mapped to SEC equivalents
+- **EDINET** (`.T` Japanese stocks): 有価証券報告書 sections (optional API key)
+
+Each with 5 section tabs, word count, and **AI Summary** via Gemini.
 
 ### ⚙️ Settings
 - Google Gemini API key configuration
@@ -101,51 +108,40 @@ Inline 10-K filing viewer:
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        ATLAS TERMINAL                           │
-├────────────────────────────┬────────────────────────────────────┤
-│   Next.js 14 Frontend      │     FastAPI Backend                │
-│   (Port 3000)              │     (Port 8000)                    │
-│                            │                                    │
-│   ┌──────────────────┐     │     ┌──────────────────────┐       │
-│   │ App Router Pages │     │     │   13 API Routers     │       │
-│   │ • Overview       │────────▶  │   • /api/market      │       │
-│   │ • Research       │  proxy    │   • /api/financials   │       │
-│   │ • Valuation      │ /api/*   │   • /api/valuation    │       │
-│   │ • Technical      │     │     │   • /api/technical    │       │
-│   │ • Markets        │     │     │   • /api/earnings     │       │
-│   │ • Earnings       │     │     │   • /api/edgar        │       │
-│   │ • News           │     │     │   • /api/news         │       │
-│   │ • Portfolio      │     │     │   • /api/portfolio    │       │
-│   │ • Filings        │     │     │   • /api/insider      │       │
-│   │ • Settings       │     │     │   • /api/analysis     │       │
-│   └──────────────────┘     │     │   • /api/crypto       │       │
-│                            │     │   • /api/fx           │       │
-│   ┌──────────────────┐     │     │   • /api/estimates    │       │
-│   │ Components       │     │     └──────────┬───────────┘       │
-│   │ • Sidebar        │     │                │                   │
-│   │ • Ticker Bar     │     │     ┌──────────▼───────────┐       │
-│   │ • Chat Panel     │     │     │   15 Service Modules  │       │
-│   │ • useTicker()    │     │     │   • dcf_engine        │       │
-│   └──────────────────┘     │     │   • monte_carlo       │       │
-│                            │     │   • sensitivity       │       │
-│   ┌──────────────────┐     │     │   • risk_metrics      │       │
-│   │ Design System    │     │     │   • technical_analysis│       │
-│   │ Terminal Noir    │     │     │   • sec_parser        │       │
-│   │ #0A0A0F bg       │     │     │   • news_aggregator   │       │
-│   │ #00D4AA accent   │     │     │   • gemini_service    │       │
-│   │ #FF4757 red      │     │     │   • market_data       │       │
-│   └──────────────────┘     │     └──────────┬───────────┘       │
-│                            │                │                   │
-│                            │     ┌──────────▼───────────┐       │
-│                            │     │   Data Sources        │       │
-│                            │     │   • yfinance          │       │
-│                            │     │   • yahooquery         │       │
-│                            │     │   • SEC EDGAR API      │       │
-│                            │     │   • Google Gemini      │       │
-│                            │     │   • Finviz / RSS       │       │
-│                            │     └──────────────────────┘       │
-└────────────────────────────┴────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────┐
+│                         ATLAS TERMINAL                            │
+├─────────────────────────────┬─────────────────────────────────────┤
+│   Next.js 14 Frontend       │     FastAPI Backend                  │
+│   (Port 3000)               │     (Port 8000)                     │
+│                             │                                     │
+│   ┌───────────────────┐     │     ┌───────────────────────┐       │
+│   │ 12 App Router     │     │     │   21 API Routers      │       │
+│   │ Pages + AppShell  │────────▶  │   92 endpoints        │       │
+│   │ + Error Boundaries│  proxy    │   /api/market (17)     │       │
+│   └───────────────────┘ /api/*    │   /api/macro (11)      │       │
+│                             │     │   /api/portfolio (10)  │       │
+│   ┌───────────────────┐     │     │   /api/valuation (8)   │       │
+│   │ 5 Component Dirs  │     │     │   /api/analysis (6)    │       │
+│   │ overview/ macro/  │     │     │   + 14 more routers    │       │
+│   │ research/ markets/│     │     └───────────┬───────────┘       │
+│   │ filings/          │     │                 │                   │
+│   └───────────────────┘     │     ┌───────────▼───────────┐       │
+│                             │     │   37 Service Modules   │       │
+│   ┌───────────────────┐     │     │   dcf_engine, monte    │       │
+│   │ Design System     │     │     │   carlo, risk_metrics  │       │
+│   │ Terminal Noir     │     │     │   macro_fetcher, oecd  │       │
+│   │ @nivo + recharts  │     │     │   research_dashboard   │       │
+│   │ lightweight-charts│     │     │   dart/edinet/fmp...   │       │
+│   └───────────────────┘     │     └───────────┬───────────┘       │
+│                             │                 │                   │
+│                             │     ┌───────────▼───────────┐       │
+│                             │     │   Data Sources         │       │
+│                             │     │   yfinance, yahooquery  │       │
+│                             │     │   SEC EDGAR, DART, EDNT│       │
+│                             │     │   FRED, OECD, ECOS     │       │
+│                             │     │   FMP, Gemini, Finviz  │       │
+│                             │     └───────────────────────┘       │
+└─────────────────────────────┴─────────────────────────────────────┘
 ```
 
 ---
@@ -155,15 +151,16 @@ Inline 10-K filing viewer:
 | Layer | Technology |
 |-------|-----------|
 | **Frontend** | Next.js 14 (App Router), TypeScript, Tailwind CSS |
-| **Charts** | TradingView Lightweight Charts (candlestick, volume) |
+| **Charts** | TradingView Lightweight Charts, @nivo/sankey, @nivo/bar, Recharts |
 | **Backend** | Python 3.12+, FastAPI, Pydantic v2, Uvicorn |
 | **AI / LLM** | Google Gemini 2.0 Flash (`google-generativeai`) |
-| **Financial Data** | yfinance (primary), yahooquery (fallback) |
+| **Financial Data** | yfinance (primary), yahooquery (fallback), FMP (optional) |
 | **Technical Indicators** | `ta` library (RSI, MACD, Bollinger, Ichimoku, ADX) |
 | **Valuation Engine** | NumPy (Monte Carlo), SciPy (Brent root-finding for Reverse DCF) |
-| **SEC Data** | `sec-edgar-downloader`, EDGAR REST API, BeautifulSoup4 + lxml |
+| **Filings** | SEC EDGAR, Korea DART (`dart-fss`), Japan EDINET |
+| **Macro Data** | FRED (public CSV), OECD (DBnomics), ECOS (한국은행) |
 | **Database** | SQLite (local) / PostgreSQL (production) via asyncpg |
-| **News** | Finviz scraping + Google News RSS via feedparser |
+| **News** | Finviz scraping + Google News RSS + Yahoo RSS via feedparser |
 | **Design System** | Terminal Noir — custom dark theme (#0A0A0F, #00D4AA, #FF4757) |
 
 ---
@@ -175,88 +172,76 @@ atlas-terminal/
 │
 ├── apps/web/                          # Next.js 14 Frontend
 │   ├── src/app/
-│   │   ├── page.tsx                   # Overview (home)
-│   │   ├── research/page.tsx          # AI Research
-│   │   ├── valuation/page.tsx         # DCF + Sensitivity + Monte Carlo + Tornado + Reverse DCF
-│   │   ├── technical/page.tsx         # Technical Analysis (TradingView charts)
-│   │   ├── markets/page.tsx           # Financial Statements table
+│   │   ├── page.tsx                   # Overview (Multi-Asset: Equity/ETF/Commodity)
+│   │   ├── research/page.tsx          # Research Grid (F-Score, DuPont, Sankey, Waterfall)
+│   │   ├── valuation/page.tsx         # DCF + Sensitivity + Monte Carlo + Tornado + Reverse
+│   │   ├── technical/page.tsx         # Technical Analysis (TradingView + Indicators)
+│   │   ├── markets/page.tsx           # Financial Statements + Sector Heatmap
+│   │   ├── macro/page.tsx             # Global Macro (Quadrant, YieldFX, SmartMoney, FRED)
 │   │   ├── earnings/page.tsx          # Earnings history & calendar
-│   │   ├── news/page.tsx              # News feed (split-view)
-│   │   ├── portfolio/page.tsx         # Portfolio tracker
-│   │   ├── filings/page.tsx           # SEC EDGAR filing viewer
+│   │   ├── news/page.tsx              # News feed (split-view, iframe-aware)
+│   │   ├── screener/page.tsx          # Stock screener + Strategy backtest
+│   │   ├── portfolio/page.tsx         # Portfolio tracker + OCR + Risk
+│   │   ├── filings/page.tsx           # Multi-jurisdiction filing viewer (SEC/DART/EDINET)
 │   │   ├── settings/page.tsx          # API keys configuration
-│   │   ├── components/
-│   │   │   ├── sidebar.tsx            # Navigation sidebar
-│   │   │   ├── ticker-bar.tsx         # Live market indices bar
-│   │   │   └── chat-panel.tsx         # AI Copilot chat interface
+│   │   ├── components/                # 5 component directories + 3 global components
+│   │   │   ├── app-shell.tsx          # 3-panel layout (SSR-safe)
+│   │   │   ├── sidebar.tsx            # Navigation (12 items)
+│   │   │   ├── ticker-bar.tsx         # Live indices bar
+│   │   │   ├── chat-panel.tsx         # AI Copilot
+│   │   │   ├── overview/             # EquityOverview, ETFOverview, CommodityOverview, KPI, Peer
+│   │   │   ├── research/             # FScorePanel, DuPontTree, SankeyWidget, WaterfallWidget
+│   │   │   ├── macro/                # QuadrantChart, YieldFxChart, SmartMoneyPanel
+│   │   │   ├── markets/              # HeatmapSection, EconomicCalendar, KoreaMonitor, OECD
+│   │   │   └── filings/              # FilingsViewer (scroll-spy)
 │   │   └── lib/
-│   │       ├── use-ticker.ts          # Ticker state hook (localStorage + CustomEvent)
-│   │       └── api.ts                 # API helper functions
-│   ├── next.config.mjs                # API proxy: /api/* → localhost:8000
-│   ├── tailwind.config.ts             # Terminal Noir color system
-│   └── package.json
+│   │       ├── use-ticker.ts          # Ticker state (localStorage + CustomEvent, hydration-safe)
+│   │       ├── api.ts                 # API helper (apiFetch, apiPost)
+│   │       ├── ticker-alias.ts        # Natural language → ticker ("gold" → GC=F)
+│   │       └── filing-jurisdiction.ts # Ticker → SEC/DART/EDINET inference
+│   └── next.config.mjs                # API proxy: /api/* → localhost:8000
 │
 ├── server/                            # FastAPI Backend
-│   ├── main.py                        # App entry + CORS + router mounting
-│   ├── routers/                       # 13 API route handlers
-│   │   ├── market_data.py             # Stock quotes, indices, overview
-│   │   ├── financials.py              # Income statement, balance sheet, cash flow
-│   │   ├── valuation.py               # DCF, sensitivity, Monte Carlo, tornado, reverse DCF
-│   │   ├── technical.py               # RSI, MACD, Bollinger, moving averages, Fibonacci
-│   │   ├── earnings.py                # EPS history, calendar, quarterly data
-│   │   ├── insider.py                 # Insider transactions, institutional holders
-│   │   ├── edgar.py                   # SEC 10-K section extraction
-│   │   ├── analysis.py                # Gemini AI analysis endpoints
-│   │   ├── news.py                    # News aggregation
-│   │   ├── portfolio.py               # Position CRUD + risk metrics
-│   │   ├── estimates.py               # Analyst estimates
-│   │   ├── crypto.py                  # Cryptocurrency prices
-│   │   └── fx.py                      # FX rates and history
-│   ├── services/                      # 15 business logic modules
-│   │   ├── dcf_engine.py              # Excel-style DCF, 2-stage DCF, reverse DCF (scipy brentq)
-│   │   ├── monte_carlo.py             # Monte Carlo simulation (5000 runs, numpy)
-│   │   ├── sensitivity.py             # WACC × TG matrix, tornado data
-│   │   ├── risk_metrics.py            # VaR, Sharpe, Sortino, MDD, Beta, Correlation
-│   │   ├── technical_analysis.py      # All indicators via `ta` library
-│   │   ├── sec_parser.py              # SEC EDGAR download, HTML parse, section cache
-│   │   ├── news_aggregator.py         # Finviz + Google News RSS
-│   │   ├── gemini_service.py          # Gemini API wrapper
-│   │   ├── gemini_analysis.py         # Structured AI analysis prompts
-│   │   ├── market_data.py             # Market overview, sector data
-│   │   ├── financial_metrics.py       # DuPont, Altman Z, ratio calculations
-│   │   └── ...                        # crypto, fx, screenshot OCR, text chunker
-│   ├── models/                        # Pydantic schemas
+│   ├── main.py                        # App entry + 21 routers
+│   ├── routers/ (21)                  # API route handlers
+│   ├── services/ (37)                 # Business logic modules
 │   ├── db/                            # SQLite + PostgreSQL repositories
+│   ├── models/                        # Pydantic schemas
 │   ├── ai/                            # LLM router, context builder
 │   └── utils/                         # safe_float, ticker utilities
 │
-├── tests/                             # pytest test suite
-├── supabase/migrations/               # Database schema
 └── requirements.txt                   # Python dependencies
 ```
 
 ---
 
-## API Endpoints
+## API Endpoints (92 routes across 21 routers)
 
-| Prefix | Methods | Description |
-|--------|---------|-------------|
-| `/api/market` | GET | Stock quotes, company info, market overview, sector data |
-| `/api/financials` | GET | Income statement, balance sheet, cash flow, highlights, ratios |
-| `/api/valuation` | GET, POST | DCF defaults, sensitivity matrix, Monte Carlo, tornado, reverse DCF |
-| `/api/technical` | GET | RSI, MACD, Bollinger, moving averages, Fibonacci, ATR, ADX |
-| `/api/earnings` | GET | EPS history, earnings calendar, quarterly data |
-| `/api/insider` | GET | Insider transactions, institutional holders |
-| `/api/edgar` | GET | SEC 10-K section extraction, Item 7 MD&A, filing comparison |
-| `/api/analysis` | POST | Gemini AI analysis (MD&A, risk factors, financial health) |
-| `/api/estimates` | GET | Analyst consensus estimates |
-| `/api/news` | GET | Financial news aggregation (Finviz + Google News) |
-| `/api/portfolio` | GET, POST, DELETE | Position management, risk metrics |
-| `/api/crypto` | GET | Cryptocurrency prices (BTC, ETH, SOL, etc.) |
-| `/api/fx` | GET | FX rates and historical data |
-| `/health` | GET | Liveness probe with DB status |
+| Prefix | Count | Description |
+|--------|-------|-------------|
+| `/api/market` | 17 | Stock quotes, overview (multi-asset), sectors, health, peers, F-Score, Sankey, radar, ETF holdings, commodity seasonal/correlations |
+| `/api/macro` | 11 | FRED, OECD CLI, macro snapshot, **quadrant**, **yield-fx**, **smart-money**, Korea, calendar, ECOS |
+| `/api/portfolio` | 10 | Position CRUD, risk metrics, OCR screenshot, exchange options |
+| `/api/valuation` | 8 | DCF (3-scenario), sensitivity, Monte Carlo, tornado, reverse DCF, consensus, smart defaults |
+| `/api/analysis` | 6 | Gemini AI analysis (strategy, risks, MD&A, forensic, financials) |
+| `/api/financials` | 4 | Statements (IS+BS+CF), highlights, KPI history, ratios |
+| `/api/technical` | 4 | Indicators, chart data, Fibonacci, Ichimoku |
+| `/api/earnings` | 4 | EPS history, calendar, quarterly, transcript |
+| `/api/chat` | 4 | AI Copilot (stream, complete, suggested, configure) |
+| `/api/edgar` | 3 | 10-K sections, Item 7 MD&A, filing comparison |
+| `/api/estimates` | 3 | Analyst consensus, history, growth |
+| `/api/dart` | 2 | Korea DART company search + 사업보고서 sections |
+| `/api/edinet` | 2 | Japan EDINET links + 有価証券報告書 sections |
+| `/api/fmp` | 2 | Historical key metrics + ratios (FMP or Yahoo fallback) |
+| `/api/screener` | 2 | Stock screener + strategy backtest |
+| `/api/insider` | 2 | Insider transactions, institutional holders |
+| `/api/news` | 2 | News aggregation + sentiment |
+| `/api/crypto` | 2 | Cryptocurrency prices |
+| `/api/fx` | 2 | FX rates and history |
+| `/api/markets` | 1 | Index constituent heatmap |
+| `/api/research` | 1 | Quant research dashboard (F-Score, DuPont, Sankey, Waterfall, Anomalies) |
 
-Full interactive API documentation available at `http://localhost:8000/docs` (Swagger UI).
+Full interactive API documentation at `http://localhost:8000/docs` (Swagger UI).
 
 ---
 
@@ -287,78 +272,53 @@ npm run dev
 
 Open **http://localhost:3000** in your browser.
 
-Configure your **Gemini API Key** and **SEC EDGAR email** in the Settings page, then search for any ticker (e.g., MSFT, AAPL, GOOGL) to explore.
+### Optional API Keys
+
+| Key | Purpose | Where to get |
+|-----|---------|-------------|
+| `GOOGLE_API_KEY` | Gemini AI analysis | [Google AI Studio](https://aistudio.google.com/apikey) |
+| `SEC_EDGAR_EMAIL` | SEC fair-access compliance | Any valid email |
+| `FMP_API_KEY` | Analyst estimates, transcripts, calendar | [Financial Modeling Prep](https://financialmodelingprep.com/) |
+| `ECOS_API_KEY` | Korea Bank economic data | [ECOS](https://ecos.bok.or.kr/) |
+| `DART_API_KEY` | Korea DART 사업보고서 | [Open DART](https://opendart.fss.or.kr/) |
+| `EDINET_SUBSCRIPTION_KEY` | Japan EDINET 有価証券報告書 | [EDINET API](https://disclosure.edinet-fsa.go.jp/) |
 
 ---
 
 ## Design System — Terminal Noir
 
-ATLAS Terminal uses a custom dark theme inspired by professional trading terminals:
-
 | Token | Value | Usage |
 |-------|-------|-------|
 | `bg-primary` | `#0A0A0F` | Main background |
-| `bg-card` | `#12121A` | Card surfaces |
-| `bg-elevated` | `#1A1A2E` | Hover states, elevated panels |
-| `border` | `#2A2A3E` | Borders and dividers |
+| `bg-card` | `#1A1A26` | Card surfaces |
+| `bg-hover` | `#252536` | Hover states |
+| `border` | `#2A2A3A` | Borders and dividers |
 | `accent-green` | `#00D4AA` | Positive values, CTAs, active states |
 | `accent-red` | `#FF4757` | Negative values, warnings |
-| `accent-blue` | `#4A9EFF` | Informational badges, links |
+| `accent-blue` | `#4DA6FF` | Information, links |
 | `accent-yellow` | `#FFD93D` | Caution, highlights |
-| `text-primary` | `#E8E8ED` | Primary text |
-| `text-secondary` | `#A0A0B0` | Secondary text |
-| `text-muted` | `#6B6B80` | Muted labels |
-
----
-
-## Evolution: Streamlit → Next.js + FastAPI
-
-This project began as a **Streamlit prototype** (`app.py`, 3,909 lines) and has been fully migrated to a modern full-stack architecture:
-
-| Aspect | Streamlit (v1-v3) | Next.js + FastAPI (v4) |
-|--------|-------------------|----------------------|
-| Frontend | Streamlit widgets | Next.js 14 App Router + Tailwind |
-| Backend | Embedded in Streamlit | Dedicated FastAPI with 13 routers |
-| Charts | Plotly (Sankey, Radar) | TradingView Lightweight Charts |
-| State | `st.session_state` | React hooks + localStorage |
-| Routing | Tab-based (7 tabs) | File-based (10 pages) |
-| API | Monolithic | RESTful with OpenAPI docs |
-| Caching | `@st.cache_data` | SQLite/PostgreSQL persistence |
-| Deployment | Single process | Frontend + Backend independently scalable |
-
-The original Streamlit version remains functional at the project root (`app.py`) for reference.
+| `text-primary` | `#F3F4F6` | Primary text |
+| `text-secondary` | `#9CA3AF` | Secondary text |
+| `text-muted` | `#6B7280` | Muted labels |
 
 ---
 
 ## Technical Highlights
 
 ### Hybrid AI Architecture
-Gemini handles **text interpretation only** (MD&A analysis, risk factor extraction, industry outlook). All financial figures come from yfinance/yahooquery — zero hallucination risk on numbers.
+Gemini handles **text interpretation only** (MD&A analysis, risk factor extraction, anomaly explanation). All financial figures come from yfinance/yahooquery — zero hallucination risk on numbers.
 
 ### Multi-Source Data Resilience
-Primary source (yfinance) with automatic yahooquery fallback. Pipe-separated multi-key column lookups handle naming differences between providers (`"TotalRevenue|Total Revenue|Revenue"`).
+Primary source (yfinance) with automatic yahooquery fallback. FMP as optional premium source. Pipe-separated multi-key column lookups handle naming differences between providers (`"TotalRevenue|Total Revenue|Revenue"`).
 
 ### Quantitative Valuation Suite
 Five interconnected valuation models — DCF serves as the base, Sensitivity shows assumption impact, Monte Carlo quantifies uncertainty, Tornado ranks variable importance, and Reverse DCF reveals market-implied expectations.
 
-### SEC EDGAR Integration
-Full pipeline: `sec-edgar-downloader` → HTML parsing with BeautifulSoup → section extraction (Items 1A, 3, 7, 8, 9A) → local caching → AI summarization via Gemini.
+### Multi-Jurisdiction Filing Support
+SEC EDGAR (US), DART (Korea), EDINET (Japan) — automatically routed by ticker suffix. Each maps to a standardized 5-section view with AI summarization.
 
----
-
-## Requirements
-
-See [`atlas-terminal/requirements.txt`](atlas-terminal/requirements.txt) for the full Python dependency list. Key packages:
-
-- `fastapi`, `uvicorn` — Web framework
-- `yfinance`, `yahooquery` — Financial data
-- `google-generativeai` — Gemini AI
-- `sec-edgar-downloader`, `beautifulsoup4`, `lxml` — SEC filing parsing
-- `ta` — Technical analysis indicators
-- `numpy`, `scipy` — Monte Carlo simulation, optimization
-- `pandas` — Data manipulation
-
-Frontend: `next`, `react`, `tailwindcss`, `lightweight-charts`
+### Global Macro Analytics
+Growth-vs-inflation quadrant (FRED/OECD Z-scores), yield spread vs FX pairs, copper/gold + RORO composite — institutional-grade macro regime detection.
 
 ---
 
@@ -366,18 +326,17 @@ Frontend: `next`, `react`, `tailwindcss`, `lightweight-charts`
 
 | Date | Update |
 |------|--------|
-| **2026-03-21** | **Full-stack migration (v4.0) — Next.js 14 + FastAPI:** Complete rewrite from Streamlit to Next.js 14 App Router + FastAPI backend. 10 dedicated pages (Overview, Research, Valuation, Technical, Markets, Earnings, News, Portfolio, Filings, Settings). 13 REST API routers with Swagger docs. 5 valuation models (DCF, Sensitivity Matrix, Monte Carlo 5000-sim, Tornado, Reverse DCF with scipy brentq). TradingView Lightweight Charts for candlestick/volume. Technical Analysis page with RSI, MACD, Bollinger, Fibonacci, Moving Averages, ADX. Earnings beat/miss visualization. News split-view with iframe article embedding. SEC EDGAR inline filing viewer with 5 section tabs + AI Summary. Financial Statements table with YoY growth badges and margin rows. Terminal Noir dark theme design system. AI Copilot chat panel with Gemini. |
-| **2026-03-19** | **Modular refactoring (v3.0) + SEC filing viewer fix:** (1) **Architecture:** 3,909-line `app.py` refactored into 28 focused modules across `config/`, `utils/`, `data/`, `ai/`, `views/`. Each file under 300 lines. Strict unidirectional dependency graph (no circular imports). All `@st.cache_data` TTLs and `st.session_state` keys preserved identically. (2) **SEC Filing Viewer fixed:** Rebuilt EDGAR fetch chain using `submissions/CIK{cik}.json` → `filings.recent.primaryDocument[]` (replaces deprecated `directory.item` lookup). Added filing type `st.selectbox` (10-K, 10-Q, 8-K, 20-F, 6-K) connected to backend dynamically. Native HTML rendered via `streamlit.components.v1.html()` with injected CSS reset. Errors surfaced explicitly with `st.error()`. (3) **DART links** restored for Korean-listed companies. |
-| **2026-02-18** | **Market Heatmap & FX charts:** Sector heatmap with 5d/1mo data and per-ticker fallback (weekend/holiday robust). FX Momentum normalized 1Y line chart (GBP/USD, EUR/USD, USD/JPY, KRW). 10-K language toggle (한글/영문) via Gemini translation. plotly/yfinance added to requirements. |
-| **2026-02-17** | **DART, prefs, run script:** DART fetch timeout 90s; DART report titles in English (cached). SEC & DART per-category iframe viewer. Last selected company persisted in `.app_prefs.json` (survives page refresh). Single run script `run.sh` at port 8501. |
-| **2025-02-15** | **Multi-currency portfolio & FX:** Per-position currency (USD/GBP/EUR/KRW/JPY/CNY), fractional quantity, FX-adjusted returns. Gemini Vision AI screenshot import (extracts ticker, price, currency, quantity). App-wide `get_currency_for_ticker`, `get_fx_rate`, `format_price_with_usd`. |
-| **2025-02-14** | **Global company search:** yahooquery `search()` replaces static dropdown. Search by name in any language; filters INDEX/MUTUALFUND; auto-infers .KS/.KQ/.T/.L suffix. |
-| **2025-02-13** | **Design Rationale & 10Y DCF:** Design rationale section (undergrad automation mindset, 10Y 2-stage DCF, Damodaran integration). Wall Street Assumptions panel (analyst consensus + Damodaran baselines). Smart DCF defaults from Beta/CAPM. |
-| **2025-02-13** | **Robust data & comps redesign:** Multi-step shares/debt/cash fallback (fast_info → info → balance). Top-down sector analysis with `SECTORS` dict and AI Industry Outlook (Gemini). |
-| **2025-02-12** | **Hybrid architecture:** Item 7 only to Gemini; yfinance for all numbers. HTML cleansing pipeline (BeautifulSoup + regex). |
-| **2025-02-12** | **DuPont, Altman Z, Piotroski, sector KPIs, TTM fallback:** Full quantitative financial health suite. Sector-specific metrics (Tech: Rule of 40; Retail: Inventory Turnover; Financials: ROE/ROA). |
-| **2025-02-12** | **Preference persistence:** "Remember API key & email" checkbox; `.app_prefs.json` (gitignored). |
-| **2025-01-XX** | **Initial release:** SEC EDGAR 10-K download, Item 7/8 extraction, Gemini analysis, Streamlit UI. |
+| **2026-03-26** | **Codebase audit & documentation sync:** (1) Fixed `requirements.txt` — added missing `numpy`, `scipy`, `dbnomics` dependencies. (2) Full `claude.md` synchronization — updated §3 File Structure (removed 6 deleted services, added 37 current services + 21 routers), §5 API Endpoints (92 routes accurately documented), §6 Frontend Pages (12 pages with feature descriptions), §13 TODO (8 items marked complete). (3) Verified all 21 routers import cleanly, 92 API routes registered, 11/12 key endpoints tested OK (macro/quadrant timeout is external FRED latency, not code issue). |
+| **2026-03-24** | **Macro dashboard, layout stability, News/Filings UX:** Global Macro & Smart Money page with quadrant, yield-FX, copper/gold + RORO gauge. Hydration/white-screen fix (SSR-safe useTicker + dynamic Sidebar). Research grid rebuilt with Tailwind CSS. News domain-aware iframe handling. Filings plain-text fallback. Error boundaries. |
+| **2026-03-21** | **Full-stack migration (v4.0) — Next.js 14 + FastAPI:** Complete rewrite from Streamlit. 10 pages, 13 routers, 5 valuation models, TradingView charts, Technical Analysis suite, Earnings visualization, News split-view, SEC EDGAR viewer, Terminal Noir theme, AI Copilot. |
+| **2026-03-19** | **Modular refactoring (v3.0):** 3,909-line `app.py` → 28 focused modules. SEC filing viewer rebuilt with EDGAR JSON API. DART links restored for Korean stocks. |
+| **2026-02-18** | **Market Heatmap & FX charts:** Sector heatmap, FX momentum chart, 10-K language toggle. |
+| **2026-02-17** | **DART, prefs, run script:** DART fetch timeout, English report titles, per-category iframe viewer. |
+| **2025-02-15** | **Multi-currency portfolio & FX:** Per-position currency, Gemini Vision OCR screenshot import. |
+| **2025-02-14** | **Global company search:** yahooquery search, auto-infers exchange suffix. |
+| **2025-02-13** | **10Y DCF & comps redesign:** Wall Street Assumptions panel, Smart DCF defaults, sector analysis. |
+| **2025-02-12** | **Hybrid architecture:** Item 7 only to Gemini; yfinance for all numbers. DuPont, Altman Z, Piotroski F-Score. |
+| **2025-01-XX** | **Initial release:** SEC EDGAR 10-K download, Gemini analysis, Streamlit UI. |
 
 ---
 

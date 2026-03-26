@@ -2,7 +2,7 @@
 
 > 이 문서는 Claude Code 에이전트가 프로젝트를 빌드할 때 참조하는 마스터 가이드입니다.
 > 모든 에이전트는 작업 시작 전 이 문서를 반드시 읽어야 합니다.
-> **마지막 수정: 2026-03-21**
+> **마지막 수정: 2026-03-26**
 
 ---
 
@@ -36,12 +36,18 @@
 - Gemini 호출은 탭당 최대 1~2회로 제한
 - 429 에러 시 `_generate_with_retry()`로 60초 대기 후 재시도
 
-### 2.3 다단계 폴백 체인
-모든 외부 API 호출은 아래 순서를 따른다:
-```
-yfinance (1순위) → yahooquery (2순위) → fast_info (3순위) → info (4순위)
-→ balance_sheet/cashflow (5순위) → TTM 분기 합산 (6순위) → 수동 입력 (최후)
-```
+### 2.3 다단계 폴백 체인 (기능별 — 코드와 일치)
+“한 줄 체인”이 아니라 **엔드포인트/서비스마다** 소스 순서가 다르다. 아래가 실제 구현 기준이다.
+
+| 영역 | 1순위 | 2순위 | 비고 |
+|------|--------|--------|------|
+| 가격·차트·`info`·배당 등 | yfinance | yahooquery | `market_data`, `technical`, 대부분 라우터 |
+| 연간 재무제표 (`/api/financials/.../statements`) | yfinance | yahooquery | 연간만 필터 |
+| DCF 입력·`market_fetcher` 연간 집계 | yahooquery (TTM 보강) | yfinance (분기 합산 등) | `server/services/market_fetcher.py` |
+| 히스토리컬 밸류·재무 비율·어닝콜 (선택) | FMP (`FMP_API_KEY` 있을 때만) | yahooquery `summary_detail` / `financial_data` | yfinance `info` — `server/services/fmp_client.py` |
+| 거시 (FRED/OECD/ECOS) | FRED 공개 CSV / ECOS 키 | — | `server/services/macro_fetcher.py` |
+
+레거시 서술(참고): 티커 메타/추정 등 일부 경로는 `fast_info` → `info` → 재무표 순으로 보강한다.
 - 모든 숫자 파싱에 `_safe_float()` 사용 (`server/utils/safe_float.py`)
 - 실패 시 빈 DataFrame 또는 None 반환, 절대 에러를 UI에 노출하지 않음
 
@@ -77,64 +83,124 @@ function getValue(periodData: Record<string, any>, key: string) {
 atlas-terminal/
 ├── apps/web/                        # Next.js 14 프론트엔드
 │   ├── src/app/
-│   │   ├── layout.tsx               # 루트 레이아웃 (3-panel: Sidebar + Main + ChatPanel)
-│   │   ├── page.tsx                 # Overview (Sector, DuPont, Altman Z)
+│   │   ├── layout.tsx               # 루트 레이아웃 (AppShell 래퍼)
+│   │   ├── page.tsx                 # Overview — Multi-Asset (Equity/ETF/Commodity 자동분기)
 │   │   ├── globals.css              # Tailwind + Terminal Noir 기본 스타일
-│   │   ├── research/page.tsx        # 10-K AI 분석 + Risk Factors
+│   │   ├── error.tsx                # 세그먼트 레벨 에러 바운더리
+│   │   ├── global-error.tsx         # 루트 레벨 에러 바운더리
+│   │   ├── not-found.tsx            # 404 페이지
+│   │   ├── research/page.tsx        # 리서치 그리드 (F-Score, DuPont, Sankey, Waterfall, Anomaly)
 │   │   ├── valuation/page.tsx       # 5-Tab: DCF, Sensitivity, Monte Carlo, Tornado, Reverse DCF
-│   │   ├── technical/page.tsx       # TradingView 캔들차트 + RSI/MACD/Bollinger/Fibonacci/MA
-│   │   ├── markets/page.tsx         # 재무제표 테이블 (YoY Growth + Margin %)
+│   │   ├── technical/page.tsx       # TradingView 캔들차트 + RSI/MACD/Bollinger/Fibonacci/Ichimoku
+│   │   ├── markets/page.tsx         # 재무제표 테이블 + 섹터 히트맵
+│   │   ├── macro/page.tsx           # 거시 5탭(FRED/Cycle/OECD/Korea/Calendar) + Quadrant/YieldFX/SmartMoney
 │   │   ├── earnings/page.tsx        # EPS Beat/Miss + Revenue + Next Earnings
 │   │   ├── news/page.tsx            # Split-view: 기사 리스트 + iframe 원문
-│   │   ├── portfolio/page.tsx       # 포지션 CRUD + Risk Metrics
-│   │   ├── filings/page.tsx         # SEC 10-K 원문 (5개 섹션 탭 + AI 요약)
+│   │   ├── screener/page.tsx        # 종목 스크리너 + 전략 백테스트
+│   │   ├── portfolio/page.tsx       # 포지션 CRUD + Risk Metrics + OCR
+│   │   ├── filings/page.tsx         # 공시 원문 — SEC/DART/EDINET 자동분기 (5탭 + AI 요약)
 │   │   ├── settings/page.tsx        # API Key 관리
 │   │   ├── components/
-│   │   │   ├── sidebar.tsx          # 좌측 네비게이션 (10개 메뉴)
+│   │   │   ├── app-shell.tsx        # 3-panel 레이아웃 래퍼 (SSR-safe dynamic import)
+│   │   │   ├── sidebar.tsx          # 좌측 네비게이션 (12개 메뉴)
 │   │   │   ├── ticker-bar.tsx       # 상단 실시간 지수 바 (S&P, NASDAQ, KOSPI, BTC)
-│   │   │   └── chat-panel.tsx       # 우측 AI Copilot 채팅
+│   │   │   ├── chat-panel.tsx       # 우측 AI Copilot 채팅
+│   │   │   ├── filings/
+│   │   │   │   └── FilingsViewer.tsx       # 공시 뷰어 (IntersectionObserver scroll-spy)
+│   │   │   ├── macro/
+│   │   │   │   ├── GlobalMacroQuadrantChart.tsx  # 성장 vs 인플레 Z-score 산점도
+│   │   │   │   ├── YieldFxDualAxisChart.tsx       # US10Y 스프레드 vs FX 이중축
+│   │   │   │   └── SmartMoneyPanel.tsx            # Copper/Gold + RORO 패널
+│   │   │   ├── markets/
+│   │   │   │   ├── HeatmapSection.tsx      # 섹터 히트맵 (S&P/NASDAQ/KOSPI/FTSE)
+│   │   │   │   ├── EconomicCalendar.tsx    # 글로벌 경제 이벤트
+│   │   │   │   ├── KoreaMonitor.tsx        # 한국 경제 지표 (ECOS)
+│   │   │   │   ├── MacroCycleHeatmap.tsx   # 매크로 사이클 히트맵
+│   │   │   │   └── OECDCycleChart.tsx      # OECD CLI 차트
+│   │   │   ├── overview/
+│   │   │   │   ├── EquityOverview.tsx      # 주식 오버뷰 (섹터, DuPont, Altman Z)
+│   │   │   │   ├── ETFOverview.tsx         # ETF 오버뷰 (보유종목, 섹터비중)
+│   │   │   │   ├── CommodityOverview.tsx   # 원자재 오버뷰 (계절성, 상관관계)
+│   │   │   │   ├── KpiSection.tsx          # 분기 KPI 스파크라인
+│   │   │   │   └── PeerComparison.tsx      # 동종업계 밸류에이션 비교
+│   │   │   └── research/
+│   │   │       ├── ResearchGridLayout.tsx  # 12-col CSS 그리드 레이아웃
+│   │   │       ├── FScorePanel.tsx         # Piotroski F-Score 이력 (9항목)
+│   │   │       ├── DuPontTree.tsx          # 3-Factor ROE 분해 트리
+│   │   │       ├── SankeyWidget.tsx        # 손익 Sankey (@nivo/sankey)
+│   │   │       ├── WaterfallWidget.tsx     # 영업이익 워터폴 (@nivo/bar)
+│   │   │       ├── AnomalyChips.tsx        # YoY 이상치 + Gemini 설명
+│   │   │       └── types.ts               # 리서치 대시보드 타입 정의
 │   │   └── lib/
-│   │       ├── use-ticker.ts        # 티커 상태 훅 (localStorage + CustomEvent)
-│   │       └── api.ts              # API 클라이언트 유틸
+│   │       ├── use-ticker.ts        # 티커 상태 훅 (localStorage + CustomEvent, hydration-safe)
+│   │       ├── api.ts               # API 클라이언트 유틸 (apiFetch, apiPost)
+│   │       ├── ticker-alias.ts      # 자연어→티커 매핑 ("gold"→GC=F, "samsung"→005930.KS)
+│   │       └── filing-jurisdiction.ts # 티커→관할권 추론 (SEC/DART/EDINET)
 │   ├── next.config.mjs              # /api/* → localhost:8000 프록시
 │   ├── tailwind.config.ts           # Terminal Noir 컬러 토큰
 │   └── package.json
 │
 ├── server/                          # FastAPI 백엔드
-│   ├── main.py                      # FastAPI app + 14개 라우터 등록
-│   ├── routers/                     # API 엔드포인트 (14개 라우터)
-│   │   ├── analysis.py              # POST /api/analysis — Gemini LLM 분석
+│   ├── main.py                      # FastAPI app + 21개 라우터 등록
+│   ├── routers/                     # API 엔드포인트 (21개)
+│   │   ├── analysis.py              # POST /api/analysis — Gemini LLM 분석 (strategy/risks/mda/forensic)
 │   │   ├── chat.py                  # /api/chat — AI Copilot
 │   │   ├── crypto.py                # /api/crypto — 암호화폐 가격
-│   │   ├── earnings.py              # /api/earnings/{ticker}/history|calendar|quarterly
+│   │   ├── dart.py                  # /api/dart — Korea DART 기업검색 + 사업보고서 섹션
+│   │   ├── earnings.py              # /api/earnings — history|calendar|quarterly|transcript
 │   │   ├── edgar.py                 # /api/edgar — SEC 10-K 다운로드 + 파싱
+│   │   ├── edinet.py                # /api/edinet — Japan EDINET 링크 + 섹션 (optional key)
 │   │   ├── estimates.py             # /api/estimates — 애널리스트 추정치
-│   │   ├── financials.py            # /api/financials/{ticker} — IS/BS/CF
+│   │   ├── financials.py            # /api/financials — statements/highlights/kpi-history/ratios
+│   │   ├── fmp.py                   # /api/fmp — Key metrics, ratios (optional FMP key)
 │   │   ├── fx.py                    # /api/fx — 환율
-│   │   ├── insider.py               # /api/insider/{ticker} — 내부자 거래
-│   │   ├── market_data.py           # /api/market — 주가/섹터/헬스체크
-│   │   ├── news.py                  # /api/news/{ticker} — Finviz + Google RSS
-│   │   ├── portfolio.py             # /api/portfolio — CRUD + Risk
-│   │   ├── technical.py             # /api/technical/{ticker} — 기술적 지표
-│   │   └── valuation.py             # /api/valuation — DCF, Sensitivity, Monte Carlo, Tornado, Reverse DCF
-│   ├── services/                    # 비즈니스 로직 (17개 서비스)
-│   │   ├── crypto_fetcher.py        # Bithumb + Binance API
+│   │   ├── insider.py               # /api/insider — 내부자 거래 + 기관보유
+│   │   ├── macro.py                 # /api/macro — FRED/OECD/ECOS/Quadrant/YieldFX/SmartMoney/Calendar
+│   │   ├── market_data.py           # /api/market — 시세/섹터/헬스/트렌드/피어/Sankey/Radar/ETF/원자재
+│   │   ├── markets.py               # /api/markets — 섹터 히트맵
+│   │   ├── news.py                  # /api/news — Finviz + Google + Yahoo RSS
+│   │   ├── portfolio.py             # /api/portfolio — CRUD + Risk + OCR
+│   │   ├── research.py              # /api/research — 퀀트 대시보드 (F-Score/DuPont/Sankey/Waterfall/Anomaly)
+│   │   ├── screener.py              # /api/screener — 종목 검색 + 백테스트
+│   │   ├── technical.py             # /api/technical — indicators/chart-data/fibonacci/ichimoku
+│   │   └── valuation.py             # /api/valuation — DCF/Sensitivity/Monte Carlo/Tornado/Reverse DCF
+│   ├── services/                    # 비즈니스 로직 (37개)
+│   │   ├── backtester.py            # 전략 백테스트 (SMA/RSI/Buy&Hold)
+│   │   ├── cache.py                 # 인메모리 TTL 캐시 데코레이터
+│   │   ├── commodity_analysis.py    # 원자재 계절성·상관관계
+│   │   ├── dart_fetcher.py          # DART API 클라이언트 (기업검색)
+│   │   ├── dart_filing_service.py   # DART 사업보고서 ZIP/XML → 섹션 매핑 + 캐시
 │   │   ├── dcf_engine.py            # excel_style_dcf, dcf_10y_2stage, reverse_dcf (scipy brentq)
+│   │   ├── economic_calendar.py     # 경제 캘린더 데이터
+│   │   ├── ecos_fetcher.py          # 한국은행 ECOS 매크로 데이터
+│   │   ├── edinet_filing_service.py # EDINET API v2 + 링크 폴백
+│   │   ├── etf_analysis.py          # ETF 보유종목·섹터비중
+│   │   ├── exchange_resolver.py     # 거래소 해석
 │   │   ├── financial_metrics.py     # DuPont, Altman Z, Piotroski F-Score
-│   │   ├── financial_metrics_ext.py # 확장 지표
-│   │   ├── fx_fetcher.py            # 환율 데이터
-│   │   ├── gemini_analysis.py       # Gemini 분석 로직
+│   │   ├── financial_metrics_ext.py # 확장 지표 (Sankey, Waterfall 데이터)
+│   │   ├── fmp_client.py            # FMP API + Yahoo fallback snapshots
 │   │   ├── gemini_service.py        # Gemini API 래퍼 (retry, streaming)
-│   │   ├── market_data.py           # 시장 데이터 서비스
-│   │   ├── market_fetcher.py        # yfinance/yahooquery 폴백 체인
+│   │   ├── global_macro_quadrant.py # 성장 vs 인플레 Z-score 사분면
+│   │   ├── heatmap.py               # 섹터 히트맵 데이터
+│   │   ├── kpi_history_service.py   # 분기 KPI 시계열 (매출성장/마진/ROE/FCF)
+│   │   ├── macro_cycle.py           # 매크로 사이클 분석 (FRED + World Bank)
+│   │   ├── macro_fetcher.py         # FRED CSV + OECD + ECOS 매크로 데이터
+│   │   ├── market_fetcher.py        # yfinance/yahooquery 폴백 체인 (DCF 입력)
+│   │   ├── market_overview.py       # 시장 개요 데이터
 │   │   ├── monte_carlo.py           # run_monte_carlo_dcf (numpy, 5000 sims)
-│   │   ├── news_aggregator.py       # RSS + Finviz + Google News
+│   │   ├── news_aggregator.py       # Finviz scrape + Google/Yahoo RSS
+│   │   ├── oecd_cycle.py            # OECD CLI via DBnomics
+│   │   ├── peer_comparison_service.py # 동종업계 밸류에이션 비교
+│   │   ├── research_dashboard.py    # 리서치 대시보드 (F-Score/DuPont/Sankey/Waterfall/Anomaly)
 │   │   ├── risk_metrics.py          # VaR, Sharpe, Sortino, MDD, Beta, Correlation
+│   │   ├── screener.py              # 종목 스크리너 로직
 │   │   ├── screenshot_ocr.py        # Gemini Vision OCR (포트폴리오 스크린샷)
 │   │   ├── sec_parser.py            # 10-K 다운로드 + HTML 파싱 + 섹션 추출 + 캐싱
+│   │   ├── sector_heatmap.py        # 섹터 히트맵 계산
 │   │   ├── sensitivity.py           # build_sensitivity_matrix, build_tornado_data
-│   │   ├── technical_analysis.py    # RSI, MACD, Bollinger, Ichimoku, ADX, Fibonacci
-│   │   └── text_chunker.py          # smart_chunk, clean_text_for_llm
+│   │   ├── smart_money_service.py   # Copper/Gold ratio + RORO 리스크 복합지수
+│   │   ├── text_chunker.py          # smart_chunk, clean_text_for_llm
+│   │   └── yield_fx_service.py      # US10Y 스프레드 vs FX (USDJPY/EURUSD/USDKRW)
 │   ├── db/                          # 데이터베이스 레이어
 │   │   ├── unified_repo.py          # SQLite/PostgreSQL 통합 인터페이스
 │   │   ├── cache.py                 # 캐시 저장소
@@ -153,7 +219,7 @@ atlas-terminal/
 │   │   └── context_builder.py       # 컨텍스트 빌더
 │   └── utils/
 │       ├── safe_float.py            # 안전한 숫자 파싱
-│       └── ticker_utils.py          # 티커 유틸리티
+│       └── ticker_utils.py          # 티커/자산유형 유틸리티
 │
 ├── claude.md                        # 이 파일 (AI 에이전트 매뉴얼)
 ├── requirements.txt                 # Python 의존성
@@ -229,32 +295,50 @@ fontFamily: {
 ### 5.1 Market Data (`/api/market`)
 | Method | Path | 설명 |
 |--------|------|------|
+| GET | `/api/market/indices` | S&P 500, NASDAQ, KOSPI, BTC |
+| GET | `/api/market/overview` | 글로벌 시장 개요 |
+| GET | `/api/market/overview/{ticker}` | 자산유형별 개요 (Equity/ETF/Commodity 자동분기) |
+| GET | `/api/market/sectors` | 섹터 히트맵 데이터 |
 | GET | `/api/market/sector/{ticker}` | 섹터, 산업, 시총, PE, 베타, 52주 |
 | GET | `/api/market/health/{ticker}` | DuPont, Altman Z, Red Flags |
-| GET | `/api/market/price/{ticker}` | 현재가, 변동률 |
-| GET | `/api/market/indices` | S&P 500, NASDAQ, KOSPI, BTC |
+| GET | `/api/market/quote/{ticker}` | 현재가, 변동률 (빠른 시세) |
+| GET | `/api/market/trend/{ticker}` | 5년 재무 트렌드 |
+| GET | `/api/market/peers/{ticker}` | 동종업계 밸류에이션 멀티플 |
+| GET | `/api/market/comps` | 비교기업 분석 |
+| GET | `/api/market/piotroski/{ticker}` | Piotroski F-Score |
+| GET | `/api/market/sankey/{ticker}` | 손익 Sankey 데이터 |
+| GET | `/api/market/radar/{ticker}` | 레이더 차트 지표 |
+| GET | `/api/market/etf/{ticker}/holdings` | ETF 보유종목 |
+| GET | `/api/market/commodity/{ticker}/seasonal` | 원자재 월별 계절성 |
+| GET | `/api/market/commodity/{ticker}/correlations` | 원자재 상관관계 |
 
 ### 5.2 Financials (`/api/financials`)
 | Method | Path | 설명 |
 |--------|------|------|
-| GET | `/api/financials/{ticker}` | 손익계산서 (yfinance → yahooquery 폴백) |
-| GET | `/api/financials/balance/{ticker}` | 대차대조표 |
-| GET | `/api/financials/cashflow/{ticker}` | 현금흐름표 |
+| GET | `/api/financials/{ticker}/statements` | IS + BS + CF 통합 (yfinance → yahooquery 폴백) |
+| GET | `/api/financials/{ticker}/highlights` | 핵심 재무 요약 (매출, 마진, ROE, D/E, OCF) |
+| GET | `/api/financials/{ticker}/kpi-history` | 분기 KPI 시계열 (매출성장, 마진, ROE, FCF) |
+| GET | `/api/financials/{ticker}/ratios` | 밸류에이션·재무 비율 |
 
 ### 5.3 Valuation (`/api/valuation`)
 | Method | Path | 설명 |
 |--------|------|------|
-| POST | `/api/valuation/dcf` | 10Y 2-Stage DCF |
+| GET | `/api/valuation/dcf-inputs/{ticker}` | DCF 입력 자동채움 |
+| GET | `/api/valuation/smart-defaults/{ticker}` | 스마트 DCF 기본값 |
+| POST | `/api/valuation/dcf` | 3-시나리오 DCF |
 | POST | `/api/valuation/sensitivity` | WACC × Terminal Growth 매트릭스 |
 | POST | `/api/valuation/monte-carlo` | 5000회 시뮬레이션 + 히스토그램 |
 | POST | `/api/valuation/tornado` | 변수별 민감도 순위 |
 | POST | `/api/valuation/reverse-dcf` | 시장 내재 성장률 (scipy brentq) |
+| GET | `/api/valuation/consensus/{ticker}` | 애널리스트 컨센서스 |
 
 ### 5.4 Technical (`/api/technical`)
 | Method | Path | 설명 |
 |--------|------|------|
-| GET | `/api/technical/{ticker}` | RSI, MACD, Bollinger, MA, ADX, Ichimoku |
-| GET | `/api/technical/{ticker}/chart` | OHLCV 캔들 데이터 |
+| GET | `/api/technical/{ticker}/indicators` | RSI, SMA, EMA, MACD, BB, ATR |
+| GET | `/api/technical/{ticker}/chart-data` | OHLCV 캔들 데이터 |
+| GET | `/api/technical/{ticker}/fibonacci` | 피보나치 되돌림 레벨 |
+| GET | `/api/technical/{ticker}/ichimoku` | 일목균형표 클라우드 |
 
 ### 5.5 Earnings (`/api/earnings`)
 | Method | Path | 설명 |
@@ -262,49 +346,103 @@ fontFamily: {
 | GET | `/api/earnings/{ticker}/history` | EPS Beat/Miss 이력 |
 | GET | `/api/earnings/{ticker}/calendar` | 다음 실적 발표일 |
 | GET | `/api/earnings/{ticker}/quarterly` | 분기별 매출/순이익 |
+| GET | `/api/earnings/{ticker}/transcript` | 어닝콜 트랜스크립트 (FMP 키 필요) |
 
-### 5.6 Insider (`/api/insider`)
+### 5.6 Research (`/api/research`)
+| Method | Path | 설명 |
+|--------|------|------|
+| GET | `/api/research/dashboard/{ticker}` | 퀀트 대시보드 (F-Score/DuPont/Sankey/Waterfall/Anomaly) |
+
+### 5.7 FMP (`/api/fmp`, 선택)
+| Method | Path | 설명 |
+|--------|------|------|
+| GET | `/api/fmp/key-metrics/{ticker}` | 히스토리컬 key metrics (키 없으면 Yahoo 스냅샷) |
+| GET | `/api/fmp/ratios/{ticker}` | 히스토리컬 ratios (키 없으면 Yahoo 스냅샷) |
+
+### 5.8 Macro (`/api/macro`)
+| Method | Path | 설명 |
+|--------|------|------|
+| GET | `/api/macro/quadrant` | 글로벌 성장 vs 인플레 Z-score 사분면 |
+| GET | `/api/macro/yield-fx` | US10Y 스프레드 vs FX (usdjpy\|eurusd\|usdkrw) |
+| GET | `/api/macro/smart-money` | Copper/Gold ratio + RORO 복합지수 |
+| GET | `/api/macro/fred/{series_id}` | FRED 시계열 (공개 CSV) |
+| GET | `/api/macro/oecd/mei` | OECD MEI (빈 배열 — API 변경 대비) |
+| GET | `/api/macro/oecd/cli` | OECD CLI 스냅샷 (DBnomics) |
+| GET | `/api/macro/snapshot` | 매크로 사이클 히트맵 (국가, 자산, 밸류에이션) |
+| GET | `/api/macro/korea` | 한국 경제 지표 (ECOS or yfinance 폴백) |
+| GET | `/api/macro/economic-calendar` | 경제 캘린더 (스크래핑) |
+| GET | `/api/macro/ecos` | ECOS 직접 호출 (`ECOS_API_KEY`) |
+| GET | `/api/macro/calendar` | 경제 캘린더 — FMP (`FMP_API_KEY`) |
+
+### 5.9 DART (`/api/dart`, 선택)
+| Method | Path | 설명 |
+|--------|------|------|
+| GET | `/api/dart/search?q=` | 상장사 이름 검색 (`DART_API_KEY`) |
+| GET | `/api/dart/sections/{ticker}` | 최신 사업보고서 → SEC 유사 5섹션 + HTML (`.KS` / `.KQ`) |
+
+### 5.10 EDINET (`/api/edinet`, 선택)
+| Method | Path | 설명 |
+|--------|------|------|
+| GET | `/api/edinet/links/{ticker}` | EDINET 포털 링크 (키 없이 사용, `7203.T`) |
+| GET | `/api/edinet/sections/{ticker}` | 有価証券報告書 섹션 (`EDINET_SUBSCRIPTION_KEY` 없으면 링크만) |
+
+### 5.11 SEC EDGAR (`/api/edgar`)
+| Method | Path | 설명 |
+|--------|------|------|
+| GET | `/api/edgar/sections/{ticker}` | 10-K 섹션별 텍스트 (1A, 3, 7, 8, 9A) |
+| GET | `/api/edgar/item7/{ticker}` | Item 7 MD&A 텍스트만 |
+| GET | `/api/edgar/compare/{ticker}` | 최신 vs 3년전 Item 7 비교 |
+
+### 5.12 Insider (`/api/insider`)
 | Method | Path | 설명 |
 |--------|------|------|
 | GET | `/api/insider/{ticker}` | 최근 내부자 거래 |
 | GET | `/api/insider/{ticker}/holders` | 기관투자자 보유 현황 |
 
-### 5.7 News (`/api/news`)
+### 5.13 News (`/api/news`)
 | Method | Path | 설명 |
 |--------|------|------|
-| GET | `/api/news/{ticker}` | Finviz + Google News RSS |
+| GET | `/api/news/{ticker}` | Finviz(스크랩) + Google RSS + Yahoo Finance RSS |
+| GET | `/api/news/{ticker}/sentiment` | 뉴스 감성 분석 |
 
-### 5.8 SEC EDGAR (`/api/edgar`)
+### 5.14 Screener (`/api/screener`)
 | Method | Path | 설명 |
 |--------|------|------|
-| POST | `/api/edgar/download` | 10-K 다운로드 (sec-edgar-downloader) |
-| GET | `/api/edgar/sections/{ticker}` | 10-K 섹션별 텍스트 (1A, 3, 7, 8, 9A) |
+| POST | `/api/screener/search` | 종목 스크리너 (PE, 섹터, 배당 필터) |
+| POST | `/api/screener/backtest` | 전략 백테스트 (SMA/RSI/Buy&Hold) |
 
-### 5.9 기타
+### 5.15 Markets (`/api/markets`)
+| Method | Path | 설명 |
+|--------|------|------|
+| GET | `/api/markets/heatmap/{index_name}` | 지수 구성종목 히트맵 (S&P/NASDAQ/KOSPI/FTSE) |
+
+### 5.16 기타
 | Prefix | 설명 |
 |--------|------|
-| `/api/analysis` | Gemini AI 분석 |
-| `/api/chat` | AI Copilot 대화 |
-| `/api/crypto` | 암호화폐 (Bithumb + Binance) |
+| `/api/analysis` | Gemini AI 분석 (strategy/risks/mda/forensic/financials) |
+| `/api/chat` | AI Copilot (stream/complete/suggested/configure) |
+| `/api/crypto` | 암호화폐 시세 |
 | `/api/fx` | 환율 |
-| `/api/estimates` | 애널리스트 추정치 |
-| `/api/portfolio` | 포트폴리오 CRUD + Risk Metrics |
+| `/api/estimates` | 애널리스트 추정치 (consensus/history/growth) |
+| `/api/portfolio` | 포트폴리오 CRUD + Risk + OCR + Screenshot |
 
 ---
 
-## 6. Frontend Pages (10개)
+## 6. Frontend Pages (전체 12개)
 
 | 경로 | 파일 | 핵심 기능 |
 |------|------|----------|
-| `/` | `page.tsx` | Overview — 섹터/산업, 시총/PE/베타, Altman Z-Score, DuPont 분해 |
-| `/research` | `research/page.tsx` | 10-K AI 분석 — MD&A + Risk Factors (Gemini) |
-| `/valuation` | `valuation/page.tsx` | **5-Tab**: DCF, Sensitivity Matrix (WACC×TG), Monte Carlo (히스토그램), Tornado, Reverse DCF |
-| `/technical` | `technical/page.tsx` | TradingView 캔들차트 (lightweight-charts), RSI/MACD/ATR 카드, 이동평균 테이블, Bollinger, Fibonacci |
-| `/markets` | `markets/page.tsx` | 재무제표 테이블 — Revenue→EBITDA, YoY Growth 뱃지(초록/빨강), Margin % 행 |
+| `/` | `page.tsx` | **Multi-Asset Overview** — 티커 자동감지 → Equity(섹터/DuPont/Altman Z/KPI/Peer)/ETF(보유종목/섹터비중)/Commodity(계절성/상관) |
+| `/research` | `research/page.tsx` | **리서치 그리드** — F-Score 이력, DuPont Tree, Sankey(손익흐름), Waterfall(영업이익), YoY 이상치+Gemini 설명 |
+| `/valuation` | `valuation/page.tsx` | **5-Tab**: DCF(3시나리오), Sensitivity Matrix(WACC×TG), Monte Carlo(히스토그램), Tornado, Reverse DCF |
+| `/technical` | `technical/page.tsx` | TradingView 캔들(lightweight-charts), RSI/MACD/ATR 카드, 이동평균, Bollinger, Fibonacci, Ichimoku |
+| `/markets` | `markets/page.tsx` | 재무제표 테이블(YoY Growth/Margin) + **섹터 히트맵**(S&P/NASDAQ/KOSPI/FTSE) |
+| `/macro` | `macro/page.tsx` | **5탭**(FRED/Cycle Heatmap/OECD CLI/Korea/Calendar) + **Quadrant**(성장vs인플레) + **YieldFX** + **SmartMoney**(Copper/Gold+RORO) |
 | `/earnings` | `earnings/page.tsx` | 다음 실적일, EPS Beat/Miss 바차트, 분기 매출/순이익 |
 | `/news` | `news/page.tsx` | Split-view — 좌측 기사 리스트(340px) + 우측 iframe 원문 보기 |
-| `/portfolio` | `portfolio/page.tsx` | 포지션 관리 + Risk Metrics (VaR, Sharpe, MDD) |
-| `/filings` | `filings/page.tsx` | SEC 10-K 원문 — 5개 섹션 탭 (Risk, MD&A, Financials, Legal, Controls) + AI Summary |
+| `/screener` | `screener/page.tsx` | **종목 스크리너**(PE/섹터/배당 필터) + **전략 백테스트**(SMA/RSI/Buy&Hold, 캔들차트 시각화) |
+| `/portfolio` | `portfolio/page.tsx` | 포지션 CRUD + Risk Metrics(VaR/Sharpe/MDD) + OCR 스크린샷 |
+| `/filings` | `filings/page.tsx` | **관할권 자동분기** — 티커 접미사로 SEC/DART(`.KS`/`.KQ`)/EDINET(`.T`), 5탭 + AI Summary |
 | `/settings` | `settings/page.tsx` | Gemini API Key, SEC Email 설정 |
 
 ---
@@ -431,9 +569,11 @@ pandas>=2.0.0           lxml>=4.9.0
 python-dotenv>=1.0.0    yfinance>=0.2.40
 yahooquery>=2.2.0       sec-edgar-downloader>=5.0.0
 feedparser>=6.0.0       ta>=0.11.0
-numpy                   scipy
+dart-fss>=0.4.0         numpy>=1.20.0
+scipy>=1.10.0           dbnomics>=1.2.0
 aiosqlite>=0.20.0       asyncpg>=0.30.0
-pillow>=10.0.0
+pillow>=10.0.0          httpx>=0.27.0
+pytest>=8.0.0
 ```
 
 ### Node.js (`apps/web/package.json`)
@@ -441,6 +581,8 @@ pillow>=10.0.0
 next: 14.2.35           react: ^18
 lightweight-charts: ^5.1.0
 tailwindcss: ^3.4.1     typescript: ^5
+@nivo/sankey: ^0.99.0   @nivo/bar: ^0.99.0
+recharts: ^2.15.4
 ```
 
 ---
@@ -451,7 +593,10 @@ GOOGLE_API_KEY=        # Gemini API
 SEC_EDGAR_EMAIL=       # SEC 정책 필수 (10-K 다운로드용)
 DATABASE_URL=          # PostgreSQL (없으면 SQLite 자동)
 NEWS_API_KEY=          # 선택
-DART_API_KEY=          # 한국 공시 (선택)
+FMP_API_KEY=           # Financial Modeling Prep (선택 — 비율·트랜스크립트·캘린더)
+ECOS_API_KEY=          # 한국은행 ECOS (선택)
+DART_API_KEY=          # 금융감독원 Open DART (선택 — DART 사업보고서)
+EDINET_SUBSCRIPTION_KEY=  # 일본 금융청 EDINET API v2 (선택 — 有価証券報告書)
 ```
 
 ---
@@ -470,16 +615,24 @@ DART_API_KEY=          # 한국 공시 (선택)
 
 ## 13. 미구현 기능 (TODO)
 
-- [ ] Widget-based 대시보드 (react-grid-layout) — 패키지 설치됨, 미구현
+- [ ] Widget-based 대시보드 (react-grid-layout) — 미구현, 패키지도 미설치
 - [ ] Enhanced AI Copilot — 인용/추론 단계 표시
 - [ ] Multi-LLM 시스템 (Gemini + Claude + OpenAI provider abstraction) — `ai/llm_router.py` 스캐폴딩만
-- [ ] Extended DuPont 5-Factor 분석
-- [ ] DART (한국 공시) / EDINET (일본 공시) 통합
-- [ ] 포트폴리오 스크린샷 OCR (Gemini Vision) — 서비스 존재, UI 미연결
+- [ ] Extended DuPont 5-Factor 분석 — 현재 3-Factor만
+- [x] DART 사업보고서 Filings 연동 (`/api/dart/sections/{ticker}`, `dart_filing_service`)
+- [x] EDINET 링크 + 선택적 본문 (`/api/edinet/sections|links`, `EDINET_SUBSCRIPTION_KEY`)
+- [x] Sankey 차트 (`research/SankeyWidget.tsx` + `@nivo/sankey`)
+- [x] Radar 차트 (`/api/market/radar/{ticker}` 엔드포인트)
+- [x] 종목 스크리너 + 전략 백테스트 (`/screener` 페이지)
+- [x] Multi-Asset Overview — Equity/ETF/Commodity 자동분기
+- [x] Macro 페이지 — FRED/Cycle/OECD/Korea/Calendar + Quadrant/YieldFX/SmartMoney
+- [x] Research 대시보드 — F-Score/DuPont Tree/Sankey/Waterfall/Anomaly 그리드
+- [x] 관할권 자동분기 Filings — SEC/DART/EDINET 티커 접미사 기반
+- [x] 포트폴리오 OCR 스크린샷 — `/api/portfolio/screenshot` 엔드포인트 + UI 연결
 - [ ] ⌘K 글로벌 커맨드 팔레트
-- [ ] Sankey (자금흐름), Radar (재무건전성) 차트
+- [ ] Settings 페이지에 FMP/ECOS/DART/EDINET 키 설정 UI 추가
 - [ ] GitHub README 자동 업데이트 워크플로우
 
 ---
 
-*마지막 수정: 2026-03-21*
+*마지막 수정: 2026-03-26*

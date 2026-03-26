@@ -6,16 +6,17 @@ const DEFAULT_TICKER = "AAPL";
 const STORAGE_KEY = "atlas_active_ticker";
 const EVENT_NAME = "atlas-ticker-change";
 
-function getInitialTicker(): string {
-  if (typeof window === "undefined") return DEFAULT_TICKER;
-  const saved = localStorage.getItem(STORAGE_KEY) || DEFAULT_TICKER;
-  return normalizeTickerInput(saved);
-}
-
 export function useTicker() {
-  const [ticker, setTickerState] = useState(getInitialTicker);
+  // Must match server render: never read localStorage in useState initializer — hydration mismatch → white screen.
+  const [ticker, setTickerState] = useState(DEFAULT_TICKER);
 
   useEffect(() => {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      const n = normalizeTickerInput(saved);
+      if (n) setTickerState(n);
+    }
+
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       if (detail) setTickerState(detail);

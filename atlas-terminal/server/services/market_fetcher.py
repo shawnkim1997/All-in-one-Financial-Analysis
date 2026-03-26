@@ -2,9 +2,10 @@
 
 Provides functions to retrieve annual income statements, balance sheets,
 cash-flow statements, sector/industry metadata, DCF inputs, analyst
-consensus, and peer-comparable multiples.  Uses yahooquery as the primary
-source with yfinance as fallback; builds TTM aggregates from quarterly
-data when annual data is unavailable.
+consensus, and peer-comparable multiples.  **Fallback order here:**
+yahooquery first (annual or TTM from quarterly), then yfinance — see
+``claude.md`` §2.3 feature table (differs from ``/api/financials`` which
+tries yfinance first).
 """
 
 from typing import Dict, List, Optional, Tuple
