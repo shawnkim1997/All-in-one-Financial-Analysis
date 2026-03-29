@@ -107,6 +107,79 @@ async def earnings_transcript(
     }
 
 
+@router.get("/{ticker}/delta", summary="What changed vs last quarter")
+async def earnings_delta(ticker: str) -> Dict[str, Any]:
+    """Compare the two most recent quarters: revenue/earnings delta + AI summary."""
+    try:
+        import yfinance as yf
+
+        t = yf.Ticker(ticker.upper())
+        quarterly = t.quarterly_earnings
+        if quarterly is None or (hasattr(quarterly, "empty") and quarterly.empty) or len(quarterly) < 2:
+            return {"ticker": ticker.upper(), "available": False, "message": "Not enough quarterly data"}
+
+        rows = []
+        for idx, row in quarterly.iterrows():
+            rows.append({
+                "period": str(idx),
+                "revenue": _safe_float(row.get("Revenue")),
+                "earnings": _safe_float(row.get("Earnings")),
+            })
+        if len(rows) < 2:
+            return {"ticker": ticker.upper(), "available": False, "message": "Not enough quarterly data"}
+
+        latest, prev = rows[0], rows[1]
+        rev_delta = None
+        earn_delta = None
+        if latest["revenue"] and prev["revenue"] and prev["revenue"] != 0:
+            rev_delta = round((latest["revenue"] - prev["revenue"]) / abs(prev["revenue"]) * 100, 2)
+        if latest["earnings"] and prev["earnings"] and prev["earnings"] != 0:
+            earn_delta = round((latest["earnings"] - prev["earnings"]) / abs(prev["earnings"]) * 100, 2)
+
+        # EPS surprise trend from earnings_history
+        eh = t.earnings_history
+        eps_trend: List[Dict[str, Any]] = []
+        if eh is not None and hasattr(eh, "iterrows"):
+            for idx2, row2 in eh.iterrows():
+                eps_trend.append({
+                    "date": str(idx2)[:10],
+                    "surprise_pct": round(_safe_float(row2.get("surprisePercent", 0), 0) * 100, 2),
+                })
+            eps_trend = eps_trend[-4:]
+
+        # AI summary via Gemini (best-effort)
+        ai_summary: Optional[str] = None
+        try:
+            from server.services.gemini_service import generate_text
+            prompt = (
+                f"Compare {ticker.upper()} most recent two quarters.\n"
+                f"Latest quarter ({latest['period']}): Revenue ${latest['revenue']}, Earnings ${latest['earnings']}.\n"
+                f"Previous quarter ({prev['period']}): Revenue ${prev['revenue']}, Earnings ${prev['earnings']}.\n"
+                f"Revenue changed {rev_delta}%, Earnings changed {earn_delta}%.\n"
+                "In 2-3 sentences, explain what changed and why. Be concise and specific."
+            )
+            ai_summary = await generate_text(prompt)
+        except Exception:
+            pass
+
+        return {
+            "ticker": ticker.upper(),
+            "available": True,
+            "latest_quarter": latest["period"],
+            "prev_quarter": prev["period"],
+            "latest_revenue": latest["revenue"],
+            "prev_revenue": prev["revenue"],
+            "latest_earnings": latest["earnings"],
+            "prev_earnings": prev["earnings"],
+            "revenue_delta_pct": rev_delta,
+            "earnings_delta_pct": earn_delta,
+            "eps_trend": eps_trend,
+            "ai_summary": ai_summary,
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Earnings delta failed: {exc}") from exc
+
+
 @router.get("/{ticker}/quarterly", summary="Quarterly earnings data")
 async def quarterly_earnings(ticker: str) -> Dict[str, Any]:
     try:

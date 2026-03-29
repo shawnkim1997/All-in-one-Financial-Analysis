@@ -22,7 +22,23 @@ interface FredPoint {
   value: number;
 }
 
-type MacroTab = "fred" | "cycle" | "oecd" | "korea" | "calendar";
+type MacroTab = "fred" | "cycle" | "oecd" | "korea" | "calendar" | "subfactors";
+
+interface SubfactorIndicator {
+  key: string;
+  label: string;
+  value: number | null;
+  unit?: string;
+  change_3m: number | null;
+  zscore: number | null;
+  signal: "improving" | "neutral" | "deteriorating";
+}
+
+interface SubfactorData {
+  composite_score: number;
+  cycle_stage: string;
+  categories: Record<string, { score: number; indicators: SubfactorIndicator[] }>;
+}
 
 export default function MacroPage() {
   const [series, setSeries] = useState("UNRATE");
@@ -36,6 +52,7 @@ export default function MacroPage() {
   const [oecd, setOecd] = useState<OECDData | null>(null);
 
   const [classicOpen, setClassicOpen] = useState(false);
+  const [subfactors, setSubfactors] = useState<SubfactorData | null>(null);
 
   const [quadPoints, setQuadPoints] = useState<QuadrantPoint[]>([]);
   const [quadErr, setQuadErr] = useState<string | null>(null);
@@ -86,6 +103,15 @@ export default function MacroPage() {
         });
       })
       .catch(() => setSnap(null));
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/macro/subfactors")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        if (j && typeof j === "object" && j.categories) setSubfactors(j);
+      })
+      .catch(() => setSubfactors(null));
   }, []);
 
   useEffect(() => {
@@ -150,6 +176,7 @@ export default function MacroPage() {
 
   const tabs: { key: MacroTab; label: string }[] = [
     { key: "fred", label: "FRED" },
+    { key: "subfactors", label: "Sub-Factors" },
     { key: "cycle", label: "Cycle & valuation" },
     { key: "oecd", label: "OECD CLI" },
     { key: "korea", label: "Korea" },
@@ -289,6 +316,63 @@ export default function MacroPage() {
                   </div>
                 )}
               </>
+            )}
+
+            {tab === "subfactors" && (
+              <div className="space-y-4">
+                {subfactors ? (
+                  <>
+                    <div className="flex items-center gap-4 mb-2">
+                      <div className="bg-bg-secondary border border-border rounded-lg px-4 py-2">
+                        <div className="text-text-muted text-xs">Cycle Stage</div>
+                        <div className="text-accent-green font-mono font-bold text-lg">{subfactors.cycle_stage}</div>
+                      </div>
+                      <div className="bg-bg-secondary border border-border rounded-lg px-4 py-2">
+                        <div className="text-text-muted text-xs">Composite Score</div>
+                        <div className={`font-mono font-bold text-lg ${subfactors.composite_score >= 0 ? "text-accent-green" : "text-accent-red"}`}>
+                          {subfactors.composite_score >= 0 ? "+" : ""}{subfactors.composite_score.toFixed(2)}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      {Object.entries(subfactors.categories).map(([catName, cat]) => (
+                        <div key={catName} className="bg-bg-secondary border border-border rounded-lg p-4">
+                          <div className="flex items-center justify-between mb-3">
+                            <h3 className="text-text-primary text-sm font-semibold">{catName}</h3>
+                            <span className={`text-xs font-mono px-2 py-0.5 rounded ${cat.score >= 0.5 ? "bg-accent-green/15 text-accent-green" : cat.score <= -0.5 ? "bg-accent-red/15 text-accent-red" : "bg-bg-hover text-text-muted"}`}>
+                              {cat.score >= 0 ? "+" : ""}{cat.score.toFixed(2)}
+                            </span>
+                          </div>
+                          <div className="space-y-2">
+                            {cat.indicators.map((ind) => (
+                              <div key={ind.key} className="flex items-center justify-between text-sm">
+                                <span className="text-text-secondary">{ind.label}</span>
+                                <div className="flex items-center gap-3">
+                                  <span className="text-text-primary font-mono">{ind.value != null ? ind.value : "—"}{ind.unit && ind.value != null ? ind.unit : ""}</span>
+                                  {ind.change_3m != null && (
+                                    <span className={`text-xs font-mono ${ind.change_3m >= 0 ? "text-accent-green" : "text-accent-red"}`}>
+                                      {ind.change_3m >= 0 ? "+" : ""}{ind.change_3m}%
+                                    </span>
+                                  )}
+                                  <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                                    ind.signal === "improving" ? "bg-accent-green/15 text-accent-green" :
+                                    ind.signal === "deteriorating" ? "bg-accent-red/15 text-accent-red" :
+                                    "bg-bg-hover text-text-muted"
+                                  }`}>
+                                    {ind.signal}
+                                  </span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-accent-green animate-pulse font-mono">Loading sub-factor data...</div>
+                )}
+              </div>
             )}
 
             {tab === "cycle" && (

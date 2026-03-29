@@ -31,7 +31,7 @@ interface FibLevels {
 }
 
 export default function TechnicalPage() {
-  const { ticker } = useTicker();
+  const { ticker, initialized } = useTicker();
   const [indicators, setIndicators] = useState<Indicators | null>(null);
   const [bars, setBars] = useState<ChartBar[]>([]);
   const [fib, setFib] = useState<FibLevels | null>(null);
@@ -40,6 +40,7 @@ export default function TechnicalPage() {
   const chartRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (!initialized) return;
     setLoading(true);
     Promise.all([
       fetch(`/api/technical/${ticker}/indicators`).then((r) => r.ok ? r.json() : null),
@@ -51,19 +52,19 @@ export default function TechnicalPage() {
       setFib(fibData);
       setLoading(false);
     }).catch(() => setLoading(false));
-  }, [ticker, period]);
+  }, [ticker, period, initialized]);
 
-  // Render chart using lightweight-charts
+  // Render chart using lightweight-charts v5
   useEffect(() => {
     if (!chartRef.current || bars.length === 0) return;
-    // v5 typings omit series helpers; runtime still exposes addCandlestickSeries etc.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let chart: any = null;
+    let resizeHandler: (() => void) | null = null;
     (async () => {
       try {
-        const { createChart } = await import("lightweight-charts");
+        const lc = await import("lightweight-charts");
         chartRef.current!.innerHTML = "";
-        chart = createChart(chartRef.current!, {
+        chart = lc.createChart(chartRef.current!, {
           width: chartRef.current!.clientWidth,
           height: 400,
           layout: { background: { color: "#1A1A26" }, textColor: "#9CA3AF" },
@@ -71,43 +72,79 @@ export default function TechnicalPage() {
           crosshair: { mode: 0 },
           timeScale: { borderColor: "#2A2A3A" },
         });
-        const candlestickSeries = chart.addCandlestickSeries({
-          upColor: "#00D4AA",
-          downColor: "#FF4757",
-          borderUpColor: "#00D4AA",
-          borderDownColor: "#FF4757",
-          wickUpColor: "#00D4AA",
-          wickDownColor: "#FF4757",
-        });
-        candlestickSeries.setData(bars);
 
-        const volumeSeries = chart.addHistogramSeries({
-          priceFormat: { type: "volume" },
-          priceScaleId: "",
-        });
-        volumeSeries.priceScale().applyOptions({
-          scaleMargins: { top: 0.8, bottom: 0 },
-        });
-        volumeSeries.setData(
-          bars.map((b) => ({
-            time: b.time,
-            value: b.volume,
-            color: b.close >= b.open ? "rgba(0,212,170,0.3)" : "rgba(255,71,87,0.3)",
-          }))
-        );
+        // v5 API: use addSeries with series type constructor
+        const CandlestickSeries = (lc as Record<string, unknown>).CandlestickSeries;
+        const HistogramSeries = (lc as Record<string, unknown>).HistogramSeries;
+
+        if (CandlestickSeries && typeof chart.addSeries === "function") {
+          // v5 path
+          const candlestickSeries = chart.addSeries(CandlestickSeries, {
+            upColor: "#00D4AA",
+            downColor: "#FF4757",
+            borderUpColor: "#00D4AA",
+            borderDownColor: "#FF4757",
+            wickUpColor: "#00D4AA",
+            wickDownColor: "#FF4757",
+          });
+          candlestickSeries.setData(bars);
+
+          const volumeSeries = chart.addSeries(HistogramSeries, {
+            priceFormat: { type: "volume" },
+            priceScaleId: "volume",
+          });
+          volumeSeries.priceScale().applyOptions({
+            scaleMargins: { top: 0.8, bottom: 0 },
+          });
+          volumeSeries.setData(
+            bars.map((b: ChartBar) => ({
+              time: b.time,
+              value: b.volume,
+              color: b.close >= b.open ? "rgba(0,212,170,0.3)" : "rgba(255,71,87,0.3)",
+            }))
+          );
+        } else if (typeof chart.addCandlestickSeries === "function") {
+          // v4 fallback
+          const candlestickSeries = chart.addCandlestickSeries({
+            upColor: "#00D4AA",
+            downColor: "#FF4757",
+            borderUpColor: "#00D4AA",
+            borderDownColor: "#FF4757",
+            wickUpColor: "#00D4AA",
+            wickDownColor: "#FF4757",
+          });
+          candlestickSeries.setData(bars);
+
+          const volumeSeries = chart.addHistogramSeries({
+            priceFormat: { type: "volume" },
+            priceScaleId: "",
+          });
+          volumeSeries.priceScale().applyOptions({
+            scaleMargins: { top: 0.8, bottom: 0 },
+          });
+          volumeSeries.setData(
+            bars.map((b: ChartBar) => ({
+              time: b.time,
+              value: b.volume,
+              color: b.close >= b.open ? "rgba(0,212,170,0.3)" : "rgba(255,71,87,0.3)",
+            }))
+          );
+        }
 
         chart.timeScale().fitContent();
 
-        const handleResize = () => {
+        resizeHandler = () => {
           if (chartRef.current) chart.applyOptions({ width: chartRef.current.clientWidth });
         };
-        window.addEventListener("resize", handleResize);
-        return () => window.removeEventListener("resize", handleResize);
-      } catch {
-        // lightweight-charts not available
+        window.addEventListener("resize", resizeHandler);
+      } catch (e) {
+        console.error("lightweight-charts render error:", e);
       }
     })();
-    return () => { if (chart) chart.remove(); };
+    return () => {
+      if (resizeHandler) window.removeEventListener("resize", resizeHandler);
+      if (chart) chart.remove();
+    };
   }, [bars]);
 
   if (loading) return <div className="flex items-center justify-center h-64"><div className="text-accent-green animate-pulse font-mono">Loading...</div></div>;

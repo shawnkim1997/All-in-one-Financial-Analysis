@@ -9,6 +9,7 @@ const EVENT_NAME = "atlas-ticker-change";
 export function useTicker() {
   // Must match server render: never read localStorage in useState initializer — hydration mismatch → white screen.
   const [ticker, setTickerState] = useState(DEFAULT_TICKER);
+  const [initialized, setInitialized] = useState(false);
 
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
@@ -16,6 +17,7 @@ export function useTicker() {
       const n = normalizeTickerInput(saved);
       if (n) setTickerState(n);
     }
+    setInitialized(true);
 
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail;
@@ -33,5 +35,5 @@ export function useTicker() {
     window.dispatchEvent(new CustomEvent(EVENT_NAME, { detail: upper }));
   }, []);
 
-  return { ticker, setTicker };
+  return { ticker, setTicker, initialized };
 }

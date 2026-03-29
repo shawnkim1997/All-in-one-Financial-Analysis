@@ -2,11 +2,47 @@
 ATLAS Terminal — FastAPI Backend
 Unified entry point with PostgreSQL + SQLite support.
 """
+import json
+import math
 import os
 import logging
 from contextlib import asynccontextmanager
+from typing import Any
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
+
+class _NanSafeEncoder(json.JSONEncoder):
+    """Replace NaN/Inf with None so JSON serialization never crashes."""
+
+    def default(self, o: Any) -> Any:
+        return super().default(o)
+
+    def encode(self, o: Any) -> str:
+        return super().encode(_sanitize(o))
+
+
+def _sanitize(obj: Any) -> Any:
+    if isinstance(obj, float):
+        if math.isnan(obj) or math.isinf(obj):
+            return None
+        return obj
+    if isinstance(obj, dict):
+        return {k: _sanitize(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_sanitize(v) for v in obj]
+    return obj
+
+
+class NanSafeJSONResponse(JSONResponse):
+    def render(self, content: Any) -> bytes:
+        return json.dumps(
+            _sanitize(content),
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -28,6 +64,7 @@ app = FastAPI(
     description="Personal Bloomberg Terminal — Hybrid AI + Quantitative Analysis",
     version="2.0.0",
     lifespan=lifespan,
+    default_response_class=NanSafeJSONResponse,
 )
 
 # CORS — allow local frontend

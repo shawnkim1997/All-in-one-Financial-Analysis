@@ -18,11 +18,11 @@ const SECTIONS_SEC: FilingSectionTab[] = [
 ];
 
 const SECTIONS_DART: FilingSectionTab[] = [
-  { key: "item1a", label: "투자위험 (II)", short: "투자위험", anchorId: "dart-item-1a" },
-  { key: "item3", label: "소송 등", short: "소송", anchorId: "dart-item-3" },
-  { key: "item7", label: "사업의 내용 / MD&A", short: "사업·MD&A", anchorId: "dart-item-7" },
-  { key: "item8", label: "재무에 관한 사항", short: "재무", anchorId: "dart-item-8" },
-  { key: "item9a", label: "내부통제", short: "내부통제", anchorId: "dart-item-9a" },
+  { key: "item1a", label: "Investment Risk (II)", short: "Risk", anchorId: "dart-item-1a" },
+  { key: "item3", label: "Litigation", short: "Legal", anchorId: "dart-item-3" },
+  { key: "item7", label: "Business / MD&A", short: "MD&A", anchorId: "dart-item-7" },
+  { key: "item8", label: "Financial Statements", short: "Financials", anchorId: "dart-item-8" },
+  { key: "item9a", label: "Internal Controls", short: "Controls", anchorId: "dart-item-9a" },
 ];
 
 const SECTIONS_EDINET: FilingSectionTab[] = [
@@ -46,7 +46,7 @@ function mapApiSource(s: string | undefined): FilingJurisdiction {
 }
 
 export default function FilingsPage() {
-  const { ticker } = useTicker();
+  const { ticker, initialized } = useTicker();
   const viewerRef = useRef<FilingsViewerHandle | null>(null);
   const [activeSection, setActiveSection] = useState("item7");
   const [sections, setSections] = useState<Record<string, string>>({});
@@ -61,6 +61,9 @@ export default function FilingsPage() {
   const [filingSource, setFilingSource] = useState<FilingJurisdiction | null>(null);
   const [linkMap, setLinkMap] = useState<Record<string, string> | null>(null);
   const [infoMessage, setInfoMessage] = useState<string>("");
+  const [translatedText, setTranslatedText] = useState<string>("");
+  const [translating, setTranslating] = useState(false);
+  const [showTranslation, setShowTranslation] = useState(false);
 
   const previewJ = inferFilingJurisdiction(ticker);
   const activeJurisdiction = filingSource ?? previewJ;
@@ -94,6 +97,9 @@ export default function FilingsPage() {
             item9a: data.item9a || "",
           });
           setHtmlDoc(typeof data.html === "string" ? data.html : "");
+          if (data.links && typeof data.links === "object") {
+            setLinkMap(data.links as Record<string, string>);
+          }
           setActiveSection("item7");
           setHtmlVersion((v) => v + 1);
           setLoaded(true);
@@ -113,7 +119,7 @@ export default function FilingsPage() {
           const data = await res.json();
           setFilingSource(mapApiSource(data.source));
           if (data.configured === false) {
-            setInfoMessage(data.message || "DART_API_KEY가 설정되지 않았습니다.");
+            setInfoMessage(data.message || "DART_API_KEY is not configured.");
             setLoaded(false);
           } else {
             setSections({
@@ -124,13 +130,16 @@ export default function FilingsPage() {
               item9a: data.item9a || "",
             });
             setHtmlDoc(typeof data.html === "string" ? data.html : "");
+            if (data.links && typeof data.links === "object") {
+              setLinkMap(data.links as Record<string, string>);
+            }
             setActiveSection("item7");
             setHtmlVersion((v) => v + 1);
             setLoaded(true);
           }
         } else {
           const err = await res.json().catch(() => ({}));
-          setError(err.detail || "DART 공시를 불러오지 못했습니다.");
+          setError(err.detail || "Failed to load DART filing.");
         }
         setLoading(false);
         return;
@@ -160,12 +169,47 @@ export default function FilingsPage() {
         setLoaded(true);
       } else {
         const err = await res.json().catch(() => ({}));
-        setError(err.detail || "EDINET 데이터를 불러오지 못했습니다.");
+        setError(err.detail || "Failed to load EDINET data.");
       }
     } catch {
       setError("Connection error. Make sure the backend server is running.");
     }
     setLoading(false);
+  }
+
+  async function runTranslation() {
+    const content = sections[activeSection];
+    if (!content) return;
+    const apiKey = localStorage.getItem("atlas_gemini_key") || "";
+    if (!apiKey) {
+      setTranslatedText("Settings에서 Gemini API 키를 먼저 설정해주세요.");
+      setShowTranslation(true);
+      return;
+    }
+    setTranslating(true);
+    try {
+      const res = await fetch("/api/analysis/translate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: content.slice(0, 12000),
+          target_lang: "ko",
+          api_key: apiKey,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setTranslatedText(data.translated_text || "");
+        setShowTranslation(true);
+      } else {
+        setTranslatedText("번역에 실패했습니다.");
+        setShowTranslation(true);
+      }
+    } catch {
+      setTranslatedText("번역 중 오류가 발생했습니다.");
+      setShowTranslation(true);
+    }
+    setTranslating(false);
   }
 
   async function runAiSummary() {
@@ -213,8 +257,8 @@ export default function FilingsPage() {
   const intro = useMemo(() => {
     if (previewJ === "DART") {
       return {
-        title: "DART 사업보고서",
-        body: "한국 상장사 최신 사업보고서(연간)를 Open DART에서 받아 옵니다. 티커는 005930.KS 형식이어야 합니다. DART_API_KEY가 .env에 필요합니다.",
+        title: "DART Annual Report",
+        body: "Fetches the latest annual business report for Korean listed companies from Open DART. Ticker must be in 005930.KS format. Requires DART_API_KEY in .env.",
       };
     }
     if (previewJ === "EDINET") {
@@ -231,12 +275,21 @@ export default function FilingsPage() {
 
   const pageTitle =
     previewJ === "DART"
-      ? "DART 공시"
+      ? "DART Filings"
       : previewJ === "EDINET"
         ? "EDINET Filings"
         : "SEC Filings";
 
   const needsEmail = previewJ === "SEC";
+
+  // Auto-load filing for non-SEC jurisdictions (no email required)
+  useEffect(() => {
+    if (!initialized) return;
+    if (!loaded && !loading && previewJ !== "SEC") {
+      loadFiling();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ticker, initialized]);
 
   return (
     <div>
@@ -267,7 +320,7 @@ export default function FilingsPage() {
                 : previewJ === "SEC"
                   ? "Load 10-K Filing"
                   : previewJ === "DART"
-                    ? "사업보고서 불러오기"
+                    ? "Load DART Report"
                     : "Load EDINET filing"}
             </button>
           </div>
@@ -285,7 +338,7 @@ export default function FilingsPage() {
             <div className="mt-3 text-text-muted text-sm animate-pulse">
               {previewJ === "SEC"
                 ? "Downloading from SEC EDGAR... This may take 10-30 seconds for first download."
-                : "공시 원본을 가져오는 중입니다..."}
+                : "Fetching filing data..."}
             </div>
           )}
         </div>
@@ -294,22 +347,26 @@ export default function FilingsPage() {
       {loaded && (
         <>
           {linkMap && Object.keys(linkMap).length > 0 && (
-            <div className="bg-bg-card border border-border rounded-lg p-4 mb-4 text-sm text-text-secondary">
-              {infoMessage && <p className="mb-2 text-text-muted">{infoMessage}</p>}
-              <ul className="list-disc list-inside space-y-1">
-                {Object.entries(linkMap).map(([k, v]) => (
-                  <li key={k}>
-                    <a
-                      href={v}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-accent-blue hover:underline"
-                    >
-                      {k}: {v}
-                    </a>
-                  </li>
-                ))}
-              </ul>
+            <div className="flex flex-wrap items-center gap-2 mb-4">
+              {infoMessage && <p className="w-full text-text-muted text-sm mb-1">{infoMessage}</p>}
+              {Object.entries(linkMap).map(([k, v], i) => (
+                <a
+                  key={k}
+                  href={v}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-semibold transition-opacity hover:opacity-90 ${
+                    i === 0
+                      ? "bg-accent-blue text-white"
+                      : "bg-bg-card border border-border text-text-secondary hover:text-text-primary"
+                  }`}
+                >
+                  {k}
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                  </svg>
+                </a>
+              ))}
             </div>
           )}
 
@@ -323,6 +380,8 @@ export default function FilingsPage() {
                   onClick={() => {
                     setActiveSection(s.key);
                     setAiSummary("");
+                    setShowTranslation(false);
+                    setTranslatedText("");
                     if (hasHtml) {
                       viewerRef.current?.scrollToAnchor(s.anchorId);
                     }
@@ -352,14 +411,36 @@ export default function FilingsPage() {
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {currentContent && (
-                <button
-                  type="button"
-                  onClick={runAiSummary}
-                  disabled={aiLoading}
-                  className="bg-accent-blue text-white px-4 py-1.5 rounded-md text-xs font-semibold hover:opacity-90 disabled:opacity-50 transition-opacity"
-                >
-                  {aiLoading ? "Analyzing..." : "AI Summary"}
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={runAiSummary}
+                    disabled={aiLoading}
+                    className="bg-accent-blue text-white px-4 py-1.5 rounded-md text-xs font-semibold hover:opacity-90 disabled:opacity-50 transition-opacity"
+                  >
+                    {aiLoading ? "Analyzing..." : "AI Summary"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (showTranslation) {
+                        setShowTranslation(false);
+                      } else if (translatedText) {
+                        setShowTranslation(true);
+                      } else {
+                        runTranslation();
+                      }
+                    }}
+                    disabled={translating}
+                    className={`px-4 py-1.5 rounded-md text-xs font-semibold transition-opacity ${
+                      showTranslation
+                        ? "bg-accent-green text-bg-primary hover:opacity-90"
+                        : "bg-bg-card border border-accent-green/50 text-accent-green hover:opacity-90"
+                    } disabled:opacity-50`}
+                  >
+                    {translating ? "번역 중..." : showTranslation ? "English" : "한국어"}
+                  </button>
+                </>
               )}
               <button
                 type="button"
@@ -374,15 +455,15 @@ export default function FilingsPage() {
 
           {!hasHtml && previewJ === "SEC" && (
             <p className="text-text-muted text-sm mb-3">
-              <strong className="text-text-secondary">서식 HTML 스냅샷</strong>이 아직 없습니다(예: 예전에 텍스트만 캐시된 경우).
-              아래에 SEC에서 추출한 <strong className="text-text-secondary">평문</strong>이 그대로 표시됩니다.
-              표·강조가 있는 원문 형태를 보려면 <strong className="text-text-secondary">Reload</strong>로 다시 받아
-              HTML을 만드세요. (야후 iframe 차단과는 무관합니다.)
+              <strong className="text-text-secondary">HTML snapshot</strong> is not available (e.g. only plain text was cached previously).
+              The <strong className="text-text-secondary">plain text</strong> extracted from SEC is shown below.
+              To view the formatted version with tables and emphasis, click <strong className="text-text-secondary">Reload</strong> to re-fetch
+              and generate the HTML. (This is unrelated to Yahoo iframe blocking.)
             </p>
           )}
           {!hasHtml && previewJ !== "SEC" && currentContent && (
             <p className="text-text-muted text-sm mb-3">
-              HTML 조각이 없을 때는 아래 <strong className="text-text-secondary">평문</strong>으로 동일 내용을 표시합니다.
+              When HTML fragments are unavailable, the same content is displayed as <strong className="text-text-secondary">plain text</strong> below.
             </p>
           )}
 
@@ -396,7 +477,22 @@ export default function FilingsPage() {
             </div>
           )}
 
-          {hasHtml && (
+          {showTranslation && translatedText && (
+            <div className="border border-accent-green/30 rounded-lg bg-bg-card overflow-hidden flex flex-col max-h-[min(72vh,calc(100vh-200px))] mb-4">
+              <div className="px-4 py-2 border-b border-accent-green/30 bg-accent-green/5 text-xs text-accent-green shrink-0 flex items-center gap-2">
+                <span className="font-semibold">한국어 번역</span>
+                <span className="text-text-muted">— Gemini AI 번역</span>
+              </div>
+              <div
+                className="overflow-y-auto flex-1 min-h-0 p-4 md:p-6 pb-10 text-sm text-text-primary leading-relaxed whitespace-pre-wrap break-words"
+                style={{ WebkitOverflowScrolling: "touch" }}
+              >
+                {translatedText}
+              </div>
+            </div>
+          )}
+
+          {!showTranslation && hasHtml && (
             <FilingsViewer
               ref={viewerRef}
               html={htmlDoc}
@@ -406,7 +502,7 @@ export default function FilingsPage() {
             />
           )}
 
-          {!hasHtml && currentContent && (
+          {!showTranslation && !hasHtml && currentContent && (
             <div className="border border-border rounded-lg bg-bg-card overflow-hidden flex flex-col max-h-[min(72vh,calc(100vh-200px))]">
               <div className="px-4 py-2 border-b border-border bg-bg-primary/50 text-xs text-text-muted shrink-0">
                 Plain text (cached) — same source as AI Summary; formatted HTML viewer is optional.

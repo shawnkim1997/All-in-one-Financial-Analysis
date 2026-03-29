@@ -128,7 +128,7 @@ const ROW_MAP: Record<StatementType, RowDef[]> = {
 };
 
 export default function MarketsPage() {
-  const { ticker } = useTicker();
+  const { ticker, initialized } = useTicker();
   const [data, setData] = useState<FinancialStatements | null>(null);
   const [tab, setTab] = useState<StatementType>("income_statement");
   const [viewTab, setViewTab] = useState<ViewTab>("overview");
@@ -138,6 +138,7 @@ export default function MarketsPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (!initialized) return;
     setLoading(true);
     fetch(`/api/financials/${ticker}/statements`)
       .then((r) => (r.ok ? r.json() : null))
@@ -146,7 +147,7 @@ export default function MarketsPage() {
         setLoading(false);
       })
       .catch(() => setLoading(false));
-  }, [ticker]);
+  }, [ticker, initialized]);
 
   useEffect(() => {
     fetch("/api/market/overview")

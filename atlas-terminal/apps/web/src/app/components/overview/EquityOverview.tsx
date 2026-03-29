@@ -33,7 +33,9 @@ export function EquityOverview({ ticker, sector, health }: EquityOverviewProps) 
     { label: "Sector", value: String(sector?.sector ?? "—") },
     { label: "Industry", value: String(sector?.industry ?? "—") },
     { label: "Market Cap", value: sector?.market_cap ? `$${(Number(sector.market_cap) / 1e9).toFixed(1)}B` : "—" },
-    { label: "P/E Ratio", value: sector?.pe_ratio != null ? Number(sector.pe_ratio).toFixed(1) : "—" },
+    { label: "P/E (TTM)", value: sector?.pe_ratio != null ? Number(sector.pe_ratio).toFixed(1) : "—" },
+    { label: "P/E (NTM)", value: sector?.forward_pe != null ? Number(sector.forward_pe).toFixed(1) : "—" },
+    { label: "PEG Ratio", value: sector?.peg_ratio != null ? Number(sector.peg_ratio).toFixed(2) : "—" },
     { label: "Beta", value: sector?.beta != null ? Number(sector.beta).toFixed(2) : "—" },
     { label: "Div Yield", value: sector?.dividend_yield != null ? `${Number(sector.dividend_yield).toFixed(2)}%` : "—" },
     { label: "52W High", value: sector?.fifty_two_week_high != null ? `$${Number(sector.fifty_two_week_high).toFixed(2)}` : "—" },
@@ -56,6 +58,7 @@ export function EquityOverview({ ticker, sector, health }: EquityOverviewProps) 
           </div>
         ))}
       </div>
+      <ConsensusGauge sector={sector} />
       <KpiSection data={kpiData} />
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-4">
         <Card title="Altman Z-Score" value={health?.altman_z != null ? Number(health.altman_z).toFixed(2) : "—"} />
@@ -84,6 +87,64 @@ export function EquityOverview({ ticker, sector, health }: EquityOverviewProps) 
         )}
       </div>
       <PeerComparison currentTicker={ticker} data={peerData} />
+    </div>
+  );
+}
+
+function ConsensusGauge({ sector }: { sector: Record<string, unknown> | null }) {
+  const current = sector?.current_price != null ? Number(sector.current_price) : null;
+  const target = sector?.target_mean_price != null ? Number(sector.target_mean_price) : null;
+  const low = sector?.target_low_price != null ? Number(sector.target_low_price) : null;
+  const high = sector?.target_high_price != null ? Number(sector.target_high_price) : null;
+  const rec = sector?.recommendation as string | undefined;
+  const count = sector?.analyst_count != null ? Number(sector.analyst_count) : null;
+
+  if (!current || !target) return null;
+
+  const upside = ((target - current) / current) * 100;
+  const upsideColor = upside >= 0 ? "text-accent-green" : "text-accent-red";
+  const recLabel = rec ? rec.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "—";
+
+  // gauge position: map current price within [low, high] range
+  const gaugeLow = low ?? target * 0.7;
+  const gaugeHigh = high ?? target * 1.3;
+  const range = gaugeHigh - gaugeLow;
+  const currentPct = range > 0 ? Math.max(0, Math.min(100, ((current - gaugeLow) / range) * 100)) : 50;
+  const targetPct = range > 0 ? Math.max(0, Math.min(100, ((target - gaugeLow) / range) * 100)) : 50;
+
+  return (
+    <div className="bg-bg-card border border-border rounded-lg p-5 mb-6">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-text-secondary text-sm font-semibold">Analyst Consensus</h3>
+        {count != null && <span className="text-text-muted text-xs">{count} analysts</span>}
+      </div>
+      <div className="flex items-baseline gap-4 mb-4">
+        <div>
+          <span className="text-text-muted text-xs block">Target</span>
+          <span className="text-2xl font-mono font-bold text-text-primary">${target.toFixed(2)}</span>
+        </div>
+        <div>
+          <span className="text-text-muted text-xs block">Upside</span>
+          <span className={`text-xl font-mono font-bold ${upsideColor}`}>
+            {upside >= 0 ? "+" : ""}{upside.toFixed(1)}%
+          </span>
+        </div>
+        <div>
+          <span className="text-text-muted text-xs block">Rating</span>
+          <span className="text-lg font-semibold text-text-primary">{recLabel}</span>
+        </div>
+      </div>
+      {/* Visual gauge bar */}
+      <div className="relative h-2 bg-bg-hover rounded-full mb-2">
+        {/* target marker */}
+        <div className="absolute top-0 h-2 w-0.5 bg-accent-yellow" style={{ left: `${targetPct}%` }} />
+        {/* current price marker */}
+        <div className="absolute -top-1 h-4 w-1 bg-accent-green rounded-sm" style={{ left: `${currentPct}%` }} />
+      </div>
+      <div className="flex justify-between text-text-muted text-xs font-mono">
+        <span>${gaugeLow.toFixed(0)}</span>
+        <span>${gaugeHigh.toFixed(0)}</span>
+      </div>
     </div>
   );
 }

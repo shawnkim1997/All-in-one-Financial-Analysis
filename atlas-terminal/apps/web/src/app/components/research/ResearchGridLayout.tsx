@@ -59,7 +59,7 @@ export function ResearchGridLayout({ dashboard }: { dashboard: ResearchDashboard
       <div className="lg:col-span-12 min-h-[200px]">
         <Panel title={`YoY anomalies — ${ticker}`}>
           <p className="text-text-muted text-xs mb-3">
-            칩을 누르면 10-K 발췌와 Gemini로 설명합니다. 숫자는 서버에서만 계산됩니다.
+            Click a chip to see the 10-K excerpt explained by Gemini. All numbers are computed server-side.
           </p>
           <AnomalyChips ticker={ticker} anomalies={anomalies ?? []} />
         </Panel>

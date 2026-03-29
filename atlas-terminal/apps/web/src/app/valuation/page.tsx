@@ -50,7 +50,7 @@ interface MonteCarloData {
 type ValuationTab = "dcf" | "sensitivity" | "montecarlo" | "tornado" | "reverse";
 
 export default function ValuationPage() {
-  const { ticker } = useTicker();
+  const { ticker, initialized } = useTicker();
   const [assetType, setAssetType] = useState<string>("equity");
   const [inputs, setInputs] = useState<DCFInputs | null>(null);
   const [consensus, setConsensus] = useState<Consensus | null>(null);
@@ -70,6 +70,7 @@ export default function ValuationPage() {
   const [advLoading, setAdvLoading] = useState(false);
 
   useEffect(() => {
+    if (!initialized) return;
     setLoading(true);
     setDcfResult(null);
     setSensitivity(null);
@@ -90,7 +91,7 @@ export default function ValuationPage() {
       if (d?.fcf_growth) setFcfGrowth(d.fcf_growth);
       setLoading(false);
     }).catch(() => setLoading(false));
-  }, [ticker]);
+  }, [ticker, initialized]);
 
   async function runDCF() {
     if (!inputs) return;
@@ -184,8 +185,8 @@ export default function ValuationPage() {
           </h3>
           <div className="text-text-secondary text-sm">
             {assetType === "etf"
-              ? "NAV Premium/Discount, Expense 비교, Tracking Error 중심으로 평가합니다. DCF는 주식(EQUITY) 전용입니다."
-              : "Futures Curve(Contango/Backwardation), Cost of Carry 중심으로 평가합니다. DCF는 주식(EQUITY) 전용입니다."}
+              ? "Evaluates NAV Premium/Discount, Expense comparison, and Tracking Error. DCF is available for equities only."
+              : "Evaluates Futures Curve (Contango/Backwardation) and Cost of Carry. DCF is available for equities only."}
           </div>
         </div>
       </div>

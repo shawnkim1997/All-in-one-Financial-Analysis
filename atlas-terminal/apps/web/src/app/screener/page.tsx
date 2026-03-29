@@ -26,8 +26,23 @@ interface BacktestResult {
   benchmark_ticker?: string;
 }
 
+interface PortfolioResult {
+  error?: string;
+  total_return_pct?: number;
+  benchmark_return_pct?: number;
+  alpha?: number;
+  sharpe_ratio?: number;
+  sortino_ratio?: number;
+  max_drawdown_pct?: number;
+  contributions?: Record<string, number>;
+  equity_curve?: number[];
+  benchmark_curve?: number[];
+  dates?: string[];
+  benchmark_ticker?: string;
+}
+
 export default function ScreenerPage() {
-  const [tab, setTab] = useState<"screener" | "backtest">("screener");
+  const [tab, setTab] = useState<"screener" | "backtest" | "portfolio">("screener");
   const [rows, setRows] = useState<ScreenerRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [peMax, setPeMax] = useState("25");
@@ -43,6 +58,42 @@ export default function ScreenerPage() {
   const [btResult, setBtResult] = useState<BacktestResult | null>(null);
   const [btLoading, setBtLoading] = useState(false);
   const chartRef = useRef<HTMLDivElement>(null);
+
+  // Portfolio backtest state
+  const [ptTickers, setPtTickers] = useState("AAPL, MSFT, GOOG");
+  const [ptWeights, setPtWeights] = useState("40, 30, 30");
+  const [ptBenchmark, setPtBenchmark] = useState("SPY");
+  const [ptRebal, setPtRebal] = useState("3");
+  const [ptStart, setPtStart] = useState("2021-01-01");
+  const [ptEnd, setPtEnd] = useState("2026-01-01");
+  const [ptResult, setPtResult] = useState<PortfolioResult | null>(null);
+  const [ptLoading, setPtLoading] = useState(false);
+  const ptChartRef = useRef<HTMLDivElement>(null);
+
+  async function runPortfolioBacktest() {
+    setPtLoading(true);
+    try {
+      const tickers = ptTickers.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
+      const weights = ptWeights.split(",").map((s) => parseFloat(s.trim())).filter((n) => !isNaN(n));
+      const res = await fetch("/api/screener/portfolio-backtest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tickers,
+          weights: weights.length === tickers.length ? weights : undefined,
+          start_date: ptStart,
+          end_date: ptEnd,
+          rebalance_months: parseInt(ptRebal, 10) || 3,
+          benchmark_ticker: ptBenchmark || "SPY",
+        }),
+      });
+      setPtResult(await res.json());
+    } catch {
+      setPtResult(null);
+    } finally {
+      setPtLoading(false);
+    }
+  }
 
   async function runScreener() {
     setLoading(true);
@@ -138,6 +189,53 @@ export default function ScreenerPage() {
     };
   }, [btResult]);
 
+  useEffect(() => {
+    if (!ptResult?.equity_curve || !ptResult.benchmark_curve || !ptResult.dates || !ptChartRef.current) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let chart: any = null;
+    const el = ptChartRef.current;
+    let onResize: (() => void) | null = null;
+
+    import("lightweight-charts")
+      .then(({ createChart }) => {
+        if (!el) return;
+        el.innerHTML = "";
+        chart = createChart(el, {
+          width: el.clientWidth,
+          height: 320,
+          layout: { background: { color: "#1A1A26" }, textColor: "#9CA3AF" },
+          grid: { vertLines: { color: "#2A2A3A" }, horzLines: { color: "#2A2A3A" } },
+          crosshair: { mode: 0 },
+          timeScale: { borderColor: "#2A2A3A" },
+        });
+        const port = chart.addLineSeries({ color: "#00D4AA", lineWidth: 2 });
+        port.setData(
+          ptResult.dates!.map((d, i) => ({
+            time: d as string & { __brand?: "Time" },
+            value: ptResult.equity_curve![i],
+          }))
+        );
+        const bench = chart.addLineSeries({ color: "#4DA6FF", lineWidth: 2 });
+        bench.setData(
+          ptResult.dates!.map((d, i) => ({
+            time: d as string & { __brand?: "Time" },
+            value: ptResult.benchmark_curve![i],
+          }))
+        );
+        chart.timeScale().fitContent();
+        onResize = () => {
+          if (el && chart) chart.applyOptions({ width: el.clientWidth });
+        };
+        window.addEventListener("resize", onResize);
+      })
+      .catch(() => {});
+
+    return () => {
+      if (onResize) window.removeEventListener("resize", onResize);
+      if (chart) chart.remove();
+    };
+  }, [ptResult]);
+
   return (
     <div>
       <h1 className="text-2xl font-bold mb-4">Stock Screener</h1>
@@ -157,11 +255,19 @@ export default function ScreenerPage() {
         >
           Backtest
         </button>
+        <button
+          type="button"
+          onClick={() => setTab("portfolio")}
+          className={`px-4 py-2 rounded-md text-sm font-medium ${tab === "portfolio" ? "bg-accent-green text-bg-primary" : "text-text-secondary"}`}
+        >
+          Portfolio
+        </button>
       </div>
 
       {tab === "screener" ? (
         <div className="bg-bg-card border border-border rounded-lg p-4">
           <div className="flex flex-wrap gap-2 mb-3">
+
             <input
               value={peMax}
               onChange={(e) => setPeMax(e.target.value)}
@@ -213,7 +319,7 @@ export default function ScreenerPage() {
             </table>
           </div>
         </div>
-      ) : (
+      ) : tab === "backtest" ? (
         <div className="bg-bg-card border border-border rounded-lg p-4 space-y-4">
           <div className="flex flex-wrap gap-2 mb-3">
             <input
@@ -262,7 +368,73 @@ export default function ScreenerPage() {
           )}
           {btResult?.error && <p className="text-accent-red text-sm">{btResult.error}</p>}
         </div>
-      )}
+      ) : tab === "portfolio" ? (
+        <div className="bg-bg-card border border-border rounded-lg p-4 space-y-4">
+          <div className="flex flex-wrap gap-2 mb-3">
+            <input
+              value={ptTickers}
+              onChange={(e) => setPtTickers(e.target.value.toUpperCase())}
+              placeholder="Tickers (comma sep)"
+              className="bg-bg-primary border border-border rounded px-3 py-2 text-sm flex-1 min-w-[200px]"
+            />
+            <input
+              value={ptWeights}
+              onChange={(e) => setPtWeights(e.target.value)}
+              placeholder="Weights (e.g. 40, 30, 30)"
+              className="bg-bg-primary border border-border rounded px-3 py-2 text-sm w-48"
+            />
+            <input
+              value={ptBenchmark}
+              onChange={(e) => setPtBenchmark(e.target.value.toUpperCase())}
+              placeholder="Benchmark"
+              className="bg-bg-primary border border-border rounded px-3 py-2 text-sm w-28"
+            />
+            <input
+              value={ptRebal}
+              onChange={(e) => setPtRebal(e.target.value)}
+              placeholder="Rebal months"
+              className="bg-bg-primary border border-border rounded px-3 py-2 text-sm w-28"
+            />
+            <input type="date" value={ptStart} onChange={(e) => setPtStart(e.target.value)} className="bg-bg-primary border border-border rounded px-3 py-2 text-sm" />
+            <input type="date" value={ptEnd} onChange={(e) => setPtEnd(e.target.value)} className="bg-bg-primary border border-border rounded px-3 py-2 text-sm" />
+            <button type="button" onClick={runPortfolioBacktest} className="bg-accent-green text-bg-primary px-4 py-2 rounded font-semibold">
+              {ptLoading ? "Running..." : "Run Portfolio"}
+            </button>
+          </div>
+          <p className="text-text-muted text-xs">
+            Multi-asset portfolio (green) vs benchmark (blue). Weights are rebalanced every N months.
+          </p>
+          {ptResult && !ptResult.error && (
+            <>
+              <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
+                <Metric label="Return" value={`${ptResult.total_return_pct}%`} />
+                <Metric label={`Bench (${ptResult.benchmark_ticker || ptBenchmark})`} value={`${ptResult.benchmark_return_pct}%`} />
+                <Metric label="Alpha" value={`${ptResult.alpha}%`} />
+                <Metric label="Sharpe" value={`${ptResult.sharpe_ratio}`} />
+                <Metric label="Sortino" value={`${ptResult.sortino_ratio}`} />
+                <Metric label="Max DD" value={`${ptResult.max_drawdown_pct}%`} />
+              </div>
+              {ptResult.contributions && (
+                <div className="bg-bg-primary border border-border rounded-md p-3">
+                  <div className="text-text-muted text-xs mb-2">Contribution by Ticker</div>
+                  <div className="flex flex-wrap gap-2">
+                    {Object.entries(ptResult.contributions).map(([t, c]) => (
+                      <div key={t} className="text-xs font-mono px-2 py-1 rounded border border-border">
+                        <span className="text-accent-green">{t}</span>{" "}
+                        <span className={c >= 0 ? "text-accent-green" : "text-accent-red"}>
+                          {c >= 0 ? "+" : ""}{c}%
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div ref={ptChartRef} className="w-full min-h-[320px] rounded-lg border border-border overflow-hidden" />
+            </>
+          )}
+          {ptResult?.error && <p className="text-accent-red text-sm">{ptResult.error}</p>}
+        </div>
+      ) : null}
     </div>
   );
 }

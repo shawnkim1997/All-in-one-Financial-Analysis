@@ -21,29 +21,43 @@ interface QuarterlyData {
   earnings: number | null;
 }
 
+interface DeltaData {
+  available: boolean;
+  latest_quarter?: string;
+  prev_quarter?: string;
+  revenue_delta_pct?: number | null;
+  earnings_delta_pct?: number | null;
+  eps_trend?: { date: string; surprise_pct: number }[];
+  ai_summary?: string | null;
+}
+
 export default function EarningsPage() {
-  const { ticker } = useTicker();
+  const { ticker, initialized } = useTicker();
   const [assetType, setAssetType] = useState<string>("equity");
   const [history, setHistory] = useState<EarningsRecord[]>([]);
   const [calendar, setCalendar] = useState<CalendarData | null>(null);
   const [quarterly, setQuarterly] = useState<QuarterlyData[]>([]);
+  const [delta, setDelta] = useState<DeltaData | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (!initialized) return;
     setLoading(true);
     Promise.all([
       fetch(`/api/earnings/${ticker}/history`).then((r) => r.ok ? r.json() : null),
       fetch(`/api/earnings/${ticker}/calendar`).then((r) => r.ok ? r.json() : null),
       fetch(`/api/earnings/${ticker}/quarterly`).then((r) => r.ok ? r.json() : null),
       fetch(`/api/market/overview/${ticker}`).then((r) => r.ok ? r.json() : null),
-    ]).then(([h, c, q, o]) => {
+      fetch(`/api/earnings/${ticker}/delta`).then((r) => r.ok ? r.json() : null),
+    ]).then(([h, c, q, o, d]) => {
       setHistory(h?.history || []);
       setCalendar(c);
       setQuarterly(q?.quarterly || []);
       setAssetType(o?.asset_type || "equity");
+      setDelta(d?.available ? d : null);
       setLoading(false);
     }).catch(() => setLoading(false));
-  }, [ticker]);
+  }, [ticker, initialized]);
 
   if (loading) return <div className="flex items-center justify-center h-64"><div className="text-accent-green animate-pulse font-mono">Loading...</div></div>;
 
@@ -54,7 +68,7 @@ export default function EarningsPage() {
           <span className="text-accent-green">{ticker}</span> Earnings
         </h1>
         <div className="bg-bg-card border border-border rounded-lg p-5 text-text-secondary text-sm">
-          해당 자산 유형({assetType})에는 Earnings 데이터가 없습니다.
+          Earnings data is not available for this asset type ({assetType}).
         </div>
       </div>
     );
@@ -87,6 +101,46 @@ export default function EarningsPage() {
           </div>
         </div>
       </div>
+
+      {/* Earnings Delta — What Changed */}
+      {delta && (
+        <div className="bg-bg-card border border-accent-blue/40 rounded-lg p-5 mb-6">
+          <h3 className="text-accent-blue text-sm font-semibold mb-3">
+            Earnings Delta — {delta.latest_quarter} vs {delta.prev_quarter}
+          </h3>
+          <div className="grid grid-cols-2 gap-4 mb-4">
+            <div>
+              <div className="text-text-muted text-xs mb-1">Revenue Change</div>
+              <div className={`text-2xl font-mono font-bold ${delta.revenue_delta_pct != null && delta.revenue_delta_pct >= 0 ? "text-accent-green" : "text-accent-red"}`}>
+                {delta.revenue_delta_pct != null ? `${delta.revenue_delta_pct >= 0 ? "+" : ""}${delta.revenue_delta_pct}%` : "—"}
+              </div>
+            </div>
+            <div>
+              <div className="text-text-muted text-xs mb-1">Earnings Change</div>
+              <div className={`text-2xl font-mono font-bold ${delta.earnings_delta_pct != null && delta.earnings_delta_pct >= 0 ? "text-accent-green" : "text-accent-red"}`}>
+                {delta.earnings_delta_pct != null ? `${delta.earnings_delta_pct >= 0 ? "+" : ""}${delta.earnings_delta_pct}%` : "—"}
+              </div>
+            </div>
+          </div>
+          {delta.eps_trend && delta.eps_trend.length > 0 && (
+            <div className="flex gap-2 mb-3">
+              {delta.eps_trend.map((e, i) => (
+                <div key={i} className="text-xs font-mono px-2 py-1 bg-bg-primary rounded border border-border">
+                  <span className="text-text-muted">{e.date.slice(5)}</span>{" "}
+                  <span className={e.surprise_pct >= 0 ? "text-accent-green" : "text-accent-red"}>
+                    {e.surprise_pct >= 0 ? "+" : ""}{e.surprise_pct}%
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+          {delta.ai_summary && (
+            <p className="text-text-secondary text-sm leading-relaxed border-t border-border pt-3">
+              {delta.ai_summary}
+            </p>
+          )}
+        </div>
+      )}
 
       {/* EPS History — Beat/Miss Chart */}
       <div className="bg-bg-card border border-border rounded-lg p-5 mb-6">

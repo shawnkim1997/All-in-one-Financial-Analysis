@@ -117,7 +117,7 @@ export default function PortfolioPage() {
       const geminiKey = localStorage.getItem("atlas_gemini_key") || "";
       if (!geminiKey.trim()) {
         setOcrPositions([]);
-        setOcrError("Gemini API 키가 없습니다. Settings에서 Gemini API Key를 먼저 저장하세요.");
+        setOcrError("Gemini API key is missing. Please save your Gemini API Key in Settings first.");
         return;
       }
 
@@ -142,7 +142,7 @@ export default function PortfolioPage() {
         setOcrWarnings(Array.isArray(data?.warnings) ? data.warnings : []);
         setOcrAccountCurrency(data?.account_currency || data?.total_value?.currency || "USD");
         if (!Array.isArray(data?.positions) || data.positions.length === 0) {
-          setOcrError("OCR은 완료됐지만 포지션을 찾지 못했습니다. 표가 선명하게 보이는 스크린샷으로 다시 시도하세요.");
+          setOcrError("OCR completed but no positions were found. Try again with a clearer screenshot showing the table.");
         }
       }
     } catch {
@@ -179,7 +179,7 @@ export default function PortfolioPage() {
       }
     }
     if (failed.length > 0) {
-      setOcrError(`일부 저장 실패: ${failed.join(", ")}. Import Results를 유지합니다.`);
+      setOcrError(`Some imports failed: ${failed.join(", ")}. Keeping Import Results.`);
       return;
     }
     setOcrPositions([]);
@@ -369,11 +369,11 @@ export default function PortfolioPage() {
           onClick={() => document.getElementById("ocr-file-input")?.click()}
         >
           {isProcessing ? (
-            <p className="text-accent-green animate-pulse font-mono">AI가 포지션을 분석중...</p>
+            <p className="text-accent-green animate-pulse font-mono">AI is analyzing positions...</p>
           ) : (
             <>
               <span className="text-3xl mb-3 block">📸</span>
-              <p className="text-text-secondary text-sm">Trading 212 / IBKR 스크린샷을 드래그하세요</p>
+              <p className="text-text-secondary text-sm">Drag & drop a Trading 212 / IBKR screenshot</p>
             </>
           )}
         </div>
@@ -604,8 +604,8 @@ export default function PortfolioPage() {
       {deleteConfirmId && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[1000]" onClick={() => setDeleteConfirmId(null)}>
           <div className="bg-bg-card border border-border rounded-xl p-6 max-w-sm w-full" onClick={(e) => e.stopPropagation()}>
-            <p className="text-text-primary mb-1">정말 삭제하시겠습니까?</p>
-            <p className="text-text-muted text-sm mb-4">이 작업은 되돌릴 수 없습니다.</p>
+            <p className="text-text-primary mb-1">Are you sure you want to delete this?</p>
+            <p className="text-text-muted text-sm mb-4">This action cannot be undone.</p>
             <div className="flex justify-end gap-2">
               <button onClick={() => setDeleteConfirmId(null)} className="px-4 py-2 border border-border rounded-md text-text-secondary">Cancel</button>
               <button onClick={() => handleDelete(deleteConfirmId)} className="px-4 py-2 bg-accent-red text-white rounded-md">Delete</button>

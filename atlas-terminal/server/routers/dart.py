@@ -1,4 +1,4 @@
-"""DART Korea — company search (optional ``DART_API_KEY``) + 사업보고서 sections."""
+"""DART Korea — company search (optional ``DART_API_KEY``) + annual report sections."""
 
 from typing import Any, Dict, List
 
@@ -32,7 +32,7 @@ async def dart_search(
 @router.get(
     "/sections/{ticker}",
     response_model=EdgarSectionsResponse,
-    summary="Korean 사업보고서 sections (DART Open API)",
+    summary="Korean annual report sections (DART Open API)",
 )
 async def dart_sections(
     ticker: str,
@@ -41,7 +41,7 @@ async def dart_sections(
         description="Include HTML fragment for in-app viewer",
     ),
 ):
-    """Download latest annual report (사업보고서) and map to SEC-like section keys."""
+    """Download latest annual report and map to SEC-like section keys."""
     if not dart_filing_is_configured():
         return EdgarSectionsResponse(
             source="dart",
@@ -50,7 +50,7 @@ async def dart_sections(
             status="unconfigured",
         )
     try:
-        sections, status, html_frag, _rcept = get_dart_sections(ticker)
+        sections, status, html_frag, rcept_no = get_dart_sections(ticker)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except FileNotFoundError as exc:
@@ -59,6 +59,7 @@ async def dart_sections(
         raise HTTPException(status_code=500, detail=f"DART download failed: {exc}") from exc
 
     html_payload = html_frag if include_html else ""
+    links = {"DART 원문 공시": f"https://dart.fss.or.kr/dsaf001/main.do?rcpNo={rcept_no}"} if rcept_no else None
     return EdgarSectionsResponse(
         source="dart",
         configured=True,
@@ -69,4 +70,5 @@ async def dart_sections(
         item8=sections.get("item8", ""),
         item9a=sections.get("item9a", ""),
         html=html_payload,
+        links=links,
     )

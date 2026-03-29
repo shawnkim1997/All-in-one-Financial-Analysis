@@ -35,3 +35,28 @@ async def backtest(body: dict):
         )
     except Exception as e:
         return {"error": str(e)}
+
+
+@router.post("/portfolio-backtest")
+async def portfolio_backtest(body: dict):
+    """Run multi-asset portfolio backtest with rebalancing."""
+    try:
+        from server.services.backtester import run_portfolio_backtest
+
+        tickers = body.get("tickers", [])
+        weights = body.get("weights", [])
+        if not tickers:
+            return {"error": "At least one ticker is required"}
+        if not weights:
+            weights = [1.0 / len(tickers)] * len(tickers)
+
+        return await run_portfolio_backtest(
+            tickers=tickers,
+            weights=[float(w) for w in weights],
+            start_date=body.get("start_date", "2021-01-01"),
+            end_date=body.get("end_date", "2026-01-01"),
+            rebalance_months=int(body.get("rebalance_months", 3)),
+            benchmark_ticker=str(body.get("benchmark_ticker") or "SPY"),
+        )
+    except Exception as e:
+        return {"error": str(e)}

@@ -43,6 +43,28 @@ interface QuarterlyEarnings { period: string; revenue: number | null; earnings: 
 interface HealthData { dupont: Record<string, number>; altman_z: number | null; current_ratio: number | null; interest_coverage: number | null; debt_to_equity: number | null; red_flags: string[] }
 interface TechnicalData { [key: string]: any }
 
+type ValuationTier = "dcf" | "ev_ebitda" | "ps_revenue" | "pb_nav";
+interface RelativeValData {
+  tier: ValuationTier;
+  tierLabel: string;
+  tierReason: string;
+  method: string;
+  multipleName: string;
+  peerAvgMultiple: number;
+  companyMetric: number;
+  metricLabel: string;
+  bear: { multiple: number; value: number };
+  base: { multiple: number; value: number };
+  bull: { multiple: number; value: number };
+  netDebt: number;
+  shares: number;
+  cashRunwayQuarters: number | null;
+  revenueGrowth: number | null;
+  rule40: number | null;
+  ebitda: number | null;
+  fcf: number | null;
+}
+
 /* ═══════════════════════════════════════════════════════════════════
    Utility
    ═══════════════════════════════════════════════════════════════════ */
@@ -76,7 +98,7 @@ function renderMarkdown(text: string) {
    SECTION COMPONENTS
    ═══════════════════════════════════════════════════════════════════ */
 
-function CoverPage({ ticker, info, consensus, dcf }: { ticker: string; info: Record<string, any>; consensus: ConsensusData | null; dcf: DCFResult | null }) {
+function CoverPage({ ticker, info, consensus, dcf, relativeVal }: { ticker: string; info: Record<string, any>; consensus: ConsensusData | null; dcf: DCFResult | null; relativeVal: RelativeValData | null }) {
   const now = new Date();
   const dateStr = now.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
   const price = info.currentPrice || info.regularMarketPrice || 0;
@@ -115,7 +137,7 @@ function CoverPage({ ticker, info, consensus, dcf }: { ticker: string; info: Rec
         {[
           { label: "Price", value: fmtPrice(price) },
           { label: "Market Cap", value: fmtB(info.marketCap) },
-          { label: "DCF Fair Value", value: dcf?.base != null ? fmtPrice(dcf.base) : "N/A" },
+          { label: relativeVal ? `${relativeVal.method} Fair Value` : "DCF Fair Value", value: relativeVal ? fmtPrice(relativeVal.base.value) : dcf?.base != null ? fmtPrice(dcf.base) : "N/A" },
           { label: "Analysts", value: consensus ? `${consensus.num_analysts}` : "N/A" },
         ].map((k) => (
           <div key={k.label}>
@@ -810,6 +832,194 @@ function TechnicalSnapshot({ technical, info }: { technical: TechnicalData | nul
   );
 }
 
+/* ── Valuation Tier Detection ── */
+function detectValuationTier(fcf: number | null, ebitda: number | null, revenueGrowth: number | null): ValuationTier {
+  if (fcf != null && fcf > 0) return "dcf";
+  if (ebitda != null && ebitda > 0) return "ev_ebitda";
+  if (revenueGrowth != null && revenueGrowth > 0.10) return "ps_revenue";
+  return "pb_nav";
+}
+
+function buildRelativeVal(
+  tier: ValuationTier, peers: PeerData | null, info: Record<string, any>,
+  di: { fcf: number; total_debt: number; cash: number; shares: number } | null, hi: any,
+): RelativeValData | null {
+  if (!di || !di.shares || di.shares <= 0) return null;
+  const netDebt = (di.total_debt || 0) - (di.cash || 0);
+  const revenue = hi?.revenue || info.totalRevenue || 0;
+  const ebitda = hi?.ebitda || 0;
+  const fcf = hi?.free_cash_flow ?? info.freeCashflow ?? di.fcf ?? 0;
+  const revGrowth = hi?.revenue_growth ?? info.revenueGrowth ?? null;
+  const profitMargin = hi?.profit_margin ?? info.profitMargins ?? 0;
+  const rule40 = revGrowth != null ? (revGrowth * 100) + (profitMargin * 100) : null;
+  const cash = di.cash || 0;
+  const qBurn = fcf < 0 ? Math.abs(fcf) / 4 : 0;
+  const cashRunway = qBurn > 0 ? cash / qBurn : null;
+
+  if (tier === "ev_ebitda") {
+    const peerAvg = peers?.averages?.ev_ebitda ?? 12;
+    const impliedEV = peerAvg * ebitda;
+    const baseVal = (impliedEV - netDebt) / di.shares;
+    return {
+      tier, tierLabel: "EV/EBITDA Relative Valuation",
+      tierReason: "Free cash flow is negative due to heavy capital investment, but EBITDA is positive — the company generates operating profit before reinvestment.",
+      method: "EV/EBITDA", multipleName: "EV/EBITDA", peerAvgMultiple: peerAvg,
+      companyMetric: ebitda, metricLabel: "EBITDA",
+      bear: { multiple: peerAvg * 0.7, value: (peerAvg * 0.7 * ebitda - netDebt) / di.shares },
+      base: { multiple: peerAvg, value: baseVal },
+      bull: { multiple: peerAvg * 1.3, value: (peerAvg * 1.3 * ebitda - netDebt) / di.shares },
+      netDebt, shares: di.shares, cashRunwayQuarters: cashRunway, revenueGrowth: revGrowth, rule40, ebitda, fcf,
+    };
+  }
+  if (tier === "ps_revenue") {
+    const peerAvg = peers?.averages?.ps ?? 4;
+    const impliedMC = peerAvg * revenue;
+    const baseVal = impliedMC / di.shares;
+    return {
+      tier, tierLabel: "Price/Sales Relative Valuation",
+      tierReason: "Both FCF and EBITDA are negative, but revenue is growing rapidly. P/S (Price-to-Sales) multiple is the appropriate valuation framework for high-growth, pre-profit companies.",
+      method: "P/S", multipleName: "P/S", peerAvgMultiple: peerAvg,
+      companyMetric: revenue, metricLabel: "Revenue",
+      bear: { multiple: peerAvg * 0.6, value: (peerAvg * 0.6 * revenue) / di.shares },
+      base: { multiple: peerAvg, value: baseVal },
+      bull: { multiple: peerAvg * 1.5, value: (peerAvg * 1.5 * revenue) / di.shares },
+      netDebt, shares: di.shares, cashRunwayQuarters: cashRunway, revenueGrowth: revGrowth, rule40, ebitda, fcf,
+    };
+  }
+  // pb_nav
+  const bookVal = hi?.book_value || 0;
+  const peerAvg = peers?.averages?.pb ?? 2;
+  const baseVal = bookVal > 0 ? bookVal * peerAvg : 0;
+  return {
+    tier, tierLabel: "Price/Book (NAV) Valuation",
+    tierReason: "FCF, EBITDA, and revenue growth are all weak or negative. Asset-based valuation (P/B) provides the most relevant framework.",
+    method: "P/B", multipleName: "P/B", peerAvgMultiple: peerAvg,
+    companyMetric: bookVal * di.shares, metricLabel: "Book Value",
+    bear: { multiple: peerAvg * 0.6, value: bookVal * peerAvg * 0.6 },
+    base: { multiple: peerAvg, value: baseVal },
+    bull: { multiple: peerAvg * 1.5, value: bookVal * peerAvg * 1.5 },
+    netDebt, shares: di.shares, cashRunwayQuarters: cashRunway, revenueGrowth: revGrowth, rule40, ebitda, fcf,
+  };
+}
+
+/* ── Relative Valuation Section ── */
+function RelativeValuationSection({ rv, info }: { rv: RelativeValData; info: Record<string, any> }) {
+  const price = info.currentPrice || 0;
+  const scenarios = [
+    { label: "Bear", ...rv.bear, color: C.red },
+    { label: "Base", ...rv.base, color: C.blue },
+    { label: "Bull", ...rv.bull, color: C.green },
+  ];
+  const chartData = scenarios.map((s) => ({ name: `${s.label} (${s.multiple.toFixed(1)}x)`, value: Math.max(s.value, 0), fill: s.color }));
+
+  return (
+    <div className="report-section">
+      {/* Tier Banner */}
+      <div className="p-3 rounded mb-4" style={{ background: "#FFF8E1", borderLeft: `4px solid ${C.gold}` }}>
+        <div className="flex items-center gap-2 mb-1">
+          <span className="text-sm">&#9888;</span>
+          <span className="text-xs font-bold" style={{ color: C.navy }}>DCF Not Applicable — {rv.tierLabel}</span>
+        </div>
+        <p className="text-[10px] leading-relaxed" style={{ color: C.text }}>{rv.tierReason}</p>
+      </div>
+
+      <h2 className="section-title">{rv.method} Scenario Analysis</h2>
+      <div className="grid grid-cols-2 gap-6">
+        <div>
+          <h3 className="chart-title">Peer Avg {rv.multipleName}: {rv.peerAvgMultiple.toFixed(1)}x &bull; {rv.metricLabel}: {fmtB(rv.companyMetric)}</h3>
+          <ResponsiveContainer width="100%" height={180}>
+            <BarChart data={chartData} layout="vertical">
+              <CartesianGrid strokeDasharray="3 3" stroke="#E0E0E0" />
+              <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={(v) => `$${v.toFixed(0)}`} />
+              <YAxis type="category" dataKey="name" tick={{ fontSize: 9 }} width={100} />
+              <Tooltip formatter={(v: number) => fmtPrice(v)} />
+              <Bar dataKey="value" radius={[0, 4, 4, 0]}>{chartData.map((d, i) => <Cell key={i} fill={d.fill} />)}</Bar>
+              {price > 0 && <ReferenceLine x={price} stroke={C.gold} strokeWidth={2} strokeDasharray="5 5" label={{ value: `Current $${price.toFixed(0)}`, fill: C.gold, fontSize: 10 }} />}
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+        <div className="space-y-3">
+          {scenarios.map((s) => {
+            const upside = price > 0 ? ((s.value - price) / price) * 100 : 0;
+            return (
+              <div key={s.label} className="flex items-center justify-between p-3 rounded" style={{ background: "#F4F6F9" }}>
+                <div>
+                  <div className="text-xs font-bold" style={{ color: s.color }}>{s.label} ({s.multiple.toFixed(1)}x)</div>
+                  <div className="text-xl font-mono font-bold" style={{ color: C.navy }}>{fmtPrice(Math.max(s.value, 0))}</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-[10px]" style={{ color: C.muted }}>vs Current</div>
+                  <div className="font-mono font-bold" style={{ color: upside >= 0 ? C.green : C.red }}>{fmtPct(upside)}</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Path to Profitability ── */
+function PathToProfitability({ rv, stmts }: { rv: RelativeValData; stmts: { income_statement?: FinancialPeriod[] } }) {
+  const is = stmts.income_statement;
+  // Compute margin trends from statements
+  const marginData = (is || []).slice(0, 5).reverse().map((p) => {
+    const rev = getValue(p, "TotalRevenue|Total Revenue|Revenue");
+    const gp = getValue(p, "GrossProfit|Gross Profit");
+    const op = getValue(p, "OperatingIncome|Operating Income");
+    const ni = getValue(p, "NetIncome|Net Income|Net Income Common Stockholders");
+    const yr = p.asOfDate || p.fiscalYear || "";
+    return {
+      year: typeof yr === "string" ? yr.slice(0, 4) : String(yr),
+      grossMargin: rev && gp ? (gp / rev) * 100 : null,
+      opMargin: rev && op ? (op / rev) * 100 : null,
+      netMargin: rev && ni ? (ni / rev) * 100 : null,
+    };
+  });
+
+  const kpis = [
+    { l: "FCF (TTM)", v: fmtB(rv.fcf), color: (rv.fcf ?? 0) >= 0 ? C.green : C.red },
+    { l: "EBITDA (TTM)", v: fmtB(rv.ebitda), color: (rv.ebitda ?? 0) > 0 ? C.green : C.red },
+    { l: "Revenue Growth", v: rv.revenueGrowth != null ? fmtPct(rv.revenueGrowth * 100) : "N/A", color: (rv.revenueGrowth ?? 0) > 0 ? C.green : C.red },
+    { l: "Rule of 40", v: rv.rule40 != null ? rv.rule40.toFixed(1) : "N/A", color: (rv.rule40 ?? 0) >= 40 ? C.green : (rv.rule40 ?? 0) >= 20 ? C.gold : C.red },
+    { l: "Cash Runway", v: rv.cashRunwayQuarters != null ? `${rv.cashRunwayQuarters.toFixed(1)} Q` : "N/A", color: (rv.cashRunwayQuarters ?? 0) > 8 ? C.green : (rv.cashRunwayQuarters ?? 0) > 4 ? C.gold : C.red },
+    { l: "Net Debt", v: fmtB(rv.netDebt), color: rv.netDebt > 0 ? C.red : C.green },
+  ];
+
+  return (
+    <div className="report-section">
+      <h2 className="section-title">Path to Profitability</h2>
+      <div className="grid grid-cols-6 gap-2 mb-4">
+        {kpis.map((k) => (
+          <div key={k.l} className="text-center p-2 rounded" style={{ background: "#F4F6F9" }}>
+            <div className="text-[9px] uppercase tracking-wider" style={{ color: C.muted }}>{k.l}</div>
+            <div className="text-sm font-mono font-bold" style={{ color: k.color }}>{k.v}</div>
+          </div>
+        ))}
+      </div>
+      {marginData.length > 1 && (
+        <div>
+          <h3 className="chart-title">Margin Trajectory — Is Profitability Approaching?</h3>
+          <ResponsiveContainer width="100%" height={180}>
+            <LineChart data={marginData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#E0E0E0" />
+              <XAxis dataKey="year" tick={{ fontSize: 10 }} />
+              <YAxis tick={{ fontSize: 10 }} tickFormatter={(v) => `${v}%`} />
+              <Tooltip formatter={(v: number) => `${v?.toFixed(1)}%`} />
+              <ReferenceLine y={0} stroke={C.navy} strokeDasharray="3 3" />
+              <Line type="monotone" dataKey="grossMargin" stroke={C.green} name="Gross" strokeWidth={2} dot={{ r: 3 }} connectNulls />
+              <Line type="monotone" dataKey="opMargin" stroke={C.blue} name="Operating" strokeWidth={2} dot={{ r: 3 }} connectNulls />
+              <Line type="monotone" dataKey="netMargin" stroke={C.gold} name="Net" strokeWidth={2} dot={{ r: 3 }} connectNulls />
+              <Legend wrapperStyle={{ fontSize: 10 }} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ── Wall Street 10 ── */
 function WallStreet10Section({ sections }: { sections: Record<string, string> }) {
   const order: [string, string, string][] = [
@@ -887,6 +1097,8 @@ export default function ReportPage() {
   const [tornado, setTornado] = useState<TornadoItem[] | null>(null);
   const [reverseDcf, setReverseDcf] = useState<ReverseDCFResult | null>(null);
   const [institutional, setInstitutional] = useState<InstitutionalData | null>(null);
+  const [valTier, setValTier] = useState<ValuationTier>("dcf");
+  const [relativeVal, setRelativeVal] = useState<RelativeValData | null>(null);
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState("");
   const [error, setError] = useState("");
@@ -959,8 +1171,8 @@ export default function ReportPage() {
       const te = rTe.status === "fulfilled" ? rTe.value : null;
       if (te) setTechnical(te);
 
-      /* ── Phase 2: DCF Inputs ── */
-      setProgress("Phase 2/4 — Loading DCF inputs...");
+      /* ── Phase 2: DCF Inputs + Tier Detection ── */
+      setProgress("Phase 2/4 — Loading valuation inputs & detecting tier...");
       const [dcfInputs, smartDefaults] = await Promise.allSettled([
         fetchJson(`/api/valuation/dcf-inputs/${ticker}`),
         fetchJson(`/api/valuation/smart-defaults/${ticker}`),
@@ -968,8 +1180,15 @@ export default function ReportPage() {
       const di = dcfInputs.status === "fulfilled" ? dcfInputs.value : null;
       const sd = smartDefaults.status === "fulfilled" ? smartDefaults.value : null;
 
-      if (di && sd && di.fcf && di.shares) {
-        // smart-defaults returns percentage (e.g. 10 = 10%), but POST endpoints expect decimal (0.10)
+      // Detect valuation tier
+      const fcfVal = hi?.free_cash_flow ?? di?.fcf ?? null;
+      const ebitdaVal = hi?.ebitda ?? null;
+      const revGrowthVal = hi?.revenue_growth ?? null;
+      const tier = detectValuationTier(fcfVal, ebitdaVal, revGrowthVal);
+      setValTier(tier);
+
+      if (tier === "dcf" && di && sd && di.fcf && di.shares) {
+        // Tier 1: Full DCF analysis
         const waccDec = (sd.wacc || 9) / 100;
         const tgDec = (sd.terminal_growth || 2.5) / 100;
         const growthDec = (sd.fcf_growth || 10) / 100;
@@ -984,8 +1203,7 @@ export default function ReportPage() {
           term_growth: tgDec, n_simulations: 5000,
         };
 
-        /* ── Phase 3: DCF Calculations (5 parallel) ── */
-        setProgress("Phase 3/4 — Running valuation models (DCF, Sensitivity, Monte Carlo, Tornado, Reverse DCF)...");
+        setProgress("Phase 3/4 — Running DCF models (5 parallel)...");
         const [rDcf, rSens, rMc, rTor, rRev] = await Promise.allSettled([
           fetchJson("/api/valuation/dcf", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(params) }),
           fetchJson("/api/valuation/sensitivity", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(params) }),
@@ -999,6 +1217,11 @@ export default function ReportPage() {
         if (rMc.status === "fulfilled" && rMc.value) setMonteCarlo(rMc.value);
         if (rTor.status === "fulfilled" && rTor.value?.data) setTornado(rTor.value.data);
         if (rRev.status === "fulfilled" && rRev.value) setReverseDcf(rRev.value);
+      } else if (tier !== "dcf") {
+        // Tier 2/3/4: Relative valuation
+        setProgress("Phase 3/4 — Computing relative valuation (peer multiples)...");
+        const rv = buildRelativeVal(tier, pr, mergedInfo, di, hi);
+        if (rv) setRelativeVal(rv);
       }
 
       /* ── Phase 4: Gemini AI ── */
@@ -1022,7 +1245,7 @@ export default function ReportPage() {
   const handlePrint = useCallback(() => { window.print(); }, []);
 
   const hasReport = institutional && institutional.sections;
-  const hasData = Object.keys(info).length > 0 || Object.keys(stmts).length > 0 || research != null || dcf != null;
+  const hasData = Object.keys(info).length > 0 || Object.keys(stmts).length > 0 || research != null || dcf != null || relativeVal != null;
   const currentPrice = info.currentPrice || info.regularMarketPrice || dcf?.current_price || 0;
 
   return (
@@ -1084,7 +1307,7 @@ export default function ReportPage() {
       {(hasReport || hasData) && (
         <div className="report-container" id="atlas-report">
           {/* Page 1: Cover */}
-          <CoverPage ticker={ticker} info={info} consensus={consensus} dcf={dcf} />
+          <CoverPage ticker={ticker} info={info} consensus={consensus} dcf={dcf} relativeVal={relativeVal} />
 
           {/* Page 2: TOC */}
           <TableOfContents hasInstitutional={!!hasReport} />
@@ -1124,29 +1347,40 @@ export default function ReportPage() {
             </div>
           ) : null}
 
-          {/* Page 7: DCF Valuation */}
-          {dcf && (
-            <div className="report-page">
-              <div className="page-header">Valuation &mdash; DCF Analysis</div>
-              <DCFValuationSection dcf={dcf} reverseDcf={reverseDcf} info={info} />
-            </div>
+          {/* ── Valuation Pages (Tier-Dependent) ── */}
+          {valTier === "dcf" && dcf && (
+            <>
+              <div className="report-page">
+                <div className="page-header">Valuation &mdash; DCF Analysis</div>
+                <DCFValuationSection dcf={dcf} reverseDcf={reverseDcf} info={info} />
+              </div>
+              {(sensitivity || monteCarlo) && (
+                <div className="report-page">
+                  <div className="page-header">Valuation &mdash; Sensitivity &amp; Monte Carlo</div>
+                  <SensitivityHeatmap sensitivity={sensitivity} currentPrice={currentPrice} />
+                  <MonteCarloSection mc={monteCarlo} />
+                </div>
+              )}
+              {tornado && tornado.length > 0 && (
+                <div className="report-page">
+                  <div className="page-header">Valuation &mdash; Tornado Sensitivity</div>
+                  <TornadoSection tornado={tornado} />
+                </div>
+              )}
+            </>
           )}
 
-          {/* Page 8: Sensitivity + Monte Carlo */}
-          {(sensitivity || monteCarlo) && (
-            <div className="report-page">
-              <div className="page-header">Valuation &mdash; Sensitivity &amp; Monte Carlo</div>
-              <SensitivityHeatmap sensitivity={sensitivity} currentPrice={currentPrice} />
-              <MonteCarloSection mc={monteCarlo} />
-            </div>
-          )}
-
-          {/* Page 9: Tornado */}
-          {tornado && tornado.length > 0 && (
-            <div className="report-page">
-              <div className="page-header">Valuation &mdash; Tornado Sensitivity</div>
-              <TornadoSection tornado={tornado} />
-            </div>
+          {valTier !== "dcf" && relativeVal && (
+            <>
+              <div className="report-page">
+                <div className="page-header">Valuation &mdash; {relativeVal.tierLabel}</div>
+                <RelativeValuationSection rv={relativeVal} info={info} />
+              </div>
+              <div className="report-page">
+                <div className="page-header">Path to Profitability</div>
+                <PathToProfitability rv={relativeVal} stmts={stmts} />
+              </div>
+            </>
           )}
 
           {/* Page 10: Peer Comparison */}

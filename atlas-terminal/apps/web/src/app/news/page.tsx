@@ -81,7 +81,7 @@ interface QuoteRow {
 }
 
 export default function NewsPage() {
-  const { ticker } = useTicker();
+  const { ticker, initialized } = useTicker();
   const [news, setNews] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<NewsItem | null>(null);
@@ -90,6 +90,7 @@ export default function NewsPage() {
   const [mentionQuotes, setMentionQuotes] = useState<Record<string, QuoteRow>>({});
 
   useEffect(() => {
+    if (!initialized) return;
     setLoading(true);
     setSelected(null);
     fetch(`/api/news/${ticker}`)
@@ -99,7 +100,7 @@ export default function NewsPage() {
         setLoading(false);
       })
       .catch(() => setLoading(false));
-  }, [ticker]);
+  }, [ticker, initialized]);
 
   const filtered = useMemo(() => {
     const kw = keyword.trim().toLowerCase();
@@ -305,8 +306,7 @@ export default function NewsPage() {
               {isIframeEmbeddingBlocked(selected.url) ? (
                 <div className="flex flex-col items-center justify-center h-full min-h-[280px] p-8 text-center">
                   <p className="text-text-muted text-sm mb-2 max-w-md">
-                    이 출처(Yahoo·Bloomberg 등)는 보안 정책으로 <span className="text-text-primary font-semibold">미리보기 iframe</span>을
-                    허용하지 않습니다. 원문은 새 탭에서 열어 주세요.
+                    This source (Yahoo, Bloomberg, etc.) does not allow <span className="text-text-primary font-semibold">iframe preview</span> due to security policies. Please open the original article in a new tab.
                   </p>
                   {selected.summary ? (
                     <div className="w-full max-w-2xl mt-4 mb-6 text-left rounded-lg border border-border bg-bg-card p-4">
@@ -320,7 +320,7 @@ export default function NewsPage() {
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-2 px-5 py-2.5 bg-accent-green text-bg-primary rounded-lg font-semibold text-sm hover:opacity-90"
                   >
-                    원문 열기 ↗
+                    Open Article ↗
                   </a>
                 </div>
               ) : (

@@ -26,13 +26,13 @@ export function AnomalyChips({
   async function onChipClick(a: FinancialAnomalyItem) {
     const apiKey = typeof window !== "undefined" ? localStorage.getItem("atlas_gemini_key") || "" : "";
     if (!apiKey) {
-      setError("Settings에서 Gemini API 키를 저장한 뒤 다시 시도하세요.");
+      setError("Please save your Gemini API key in Settings, then try again.");
       setExplain(null);
       return;
     }
     const email = secEmail.trim() || (typeof window !== "undefined" ? localStorage.getItem("atlas_sec_email") || "" : "");
     if (!email.trim()) {
-      setError("SEC 공정 이용 이메일을 입력하거나 localStorage `atlas_sec_email`을 설정하세요.");
+      setError("Please enter your SEC fair-use email or set `atlas_sec_email` in localStorage.");
       setExplain(null);
       return;
     }
@@ -82,7 +82,7 @@ export function AnomalyChips({
         confidence: data.confidence || "medium",
       });
     } catch {
-      setError("네트워크 오류");
+      setError("Network error");
     } finally {
       setLoading(false);
     }
@@ -98,7 +98,7 @@ export function AnomalyChips({
   if (!anomalies.length) {
     return (
       <div className="text-text-muted text-sm">
-        YoY 변동이 임계값(30%)을 넘는 계정이 없습니다.
+        No accounts with YoY changes exceeding the 30% threshold.
       </div>
     );
   }

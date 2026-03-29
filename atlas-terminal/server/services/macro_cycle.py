@@ -393,6 +393,142 @@ def get_macro_cycle_snapshot() -> Dict[str, Any]:
     }
 
 
+_SUBFACTOR_CATEGORIES: Dict[str, List[MacroSeries]] = {
+    "Growth": [
+        MacroSeries("gdp_growth", "Real GDP Growth", "A191RL1Q225SBEA", "quarterly", "%", True),
+        MacroSeries("ism_pmi", "ISM Manufacturing PMI", "MANEMP", "monthly", "idx", True, is_index=False),
+        MacroSeries("industrial_prod", "Industrial Production", "INDPRO", "monthly", "%", True, is_index=True),
+        MacroSeries("retail_sales", "Retail Sales", "RSXFS", "monthly", "%", True, is_index=True),
+    ],
+    "Prices": [
+        MacroSeries("cpi_yoy", "CPI YoY", "CPIAUCSL", "monthly", "%", False, is_index=True),
+        MacroSeries("core_cpi", "Core CPI", "CPILFESL", "monthly", "%", False, is_index=True),
+        MacroSeries("ppi", "PPI", "PPIACO", "monthly", "%", False, is_index=True),
+        MacroSeries("pce", "PCE Price Index", "PCEPI", "monthly", "%", False, is_index=True),
+    ],
+    "Labor": [
+        MacroSeries("unemployment", "Unemployment Rate", "UNRATE", "monthly", "%", False),
+        MacroSeries("nonfarm", "Nonfarm Payrolls", "PAYEMS", "monthly", "K", True, is_index=False),
+        MacroSeries("initial_claims", "Initial Claims", "ICSA", "weekly", "K", False),
+        MacroSeries("participation", "Participation Rate", "CIVPART", "monthly", "%", True),
+    ],
+    "Financial": [
+        MacroSeries("yield_spread", "10Y-2Y Spread", "T10Y2Y", "daily", "bp", True),
+        MacroSeries("vix", "VIX", "VIXCLS", "daily", "idx", False),
+        MacroSeries("credit_spread", "BAA-AAA Spread", "BAAFFM", "monthly", "bp", False),
+        MacroSeries("fed_funds", "Fed Funds Rate", "FEDFUNDS", "monthly", "%", False),
+    ],
+}
+
+
+def _subfactor_3m_change(series) -> Optional[float]:
+    """Compute 3-month change from a pandas Series."""
+    if series is None or len(series) < 4:
+        return None
+    try:
+        recent = float(series.iloc[-1])
+        past = float(series.iloc[-4]) if len(series) >= 4 else float(series.iloc[0])
+        if past == 0:
+            return None
+        return round((recent - past) / abs(past) * 100, 2)
+    except Exception:
+        return None
+
+
+def _subfactor_signal(zscore: Optional[float], change_3m: Optional[float], higher_is_better: bool) -> str:
+    """Return improving / neutral / deteriorating."""
+    if change_3m is None and zscore is None:
+        return "neutral"
+    if change_3m is not None:
+        effective = change_3m if higher_is_better else -change_3m
+        if effective > 1.5:
+            return "improving"
+        if effective < -1.5:
+            return "deteriorating"
+    if zscore is not None:
+        effective_z = zscore if higher_is_better else -zscore
+        if effective_z > 0.5:
+            return "improving"
+        if effective_z < -0.5:
+            return "deteriorating"
+    return "neutral"
+
+
+_cached_subfactors = cached("macro_subfactors", ttl_seconds=3600)
+
+
+@_cached_subfactors
+def get_subfactor_breakdown() -> Dict[str, Any]:
+    """Return 4-category × 4-indicator subfactor breakdown with cycle stage."""
+    categories: Dict[str, Any] = {}
+    all_scores: List[float] = []
+
+    for cat_name, indicators in _SUBFACTOR_CATEGORIES.items():
+        items: List[Dict[str, Any]] = []
+        cat_scores: List[float] = []
+
+        for s in indicators:
+            try:
+                raw = _fetch_fred_series(s.fred_code)
+                if raw is None or raw.empty:
+                    items.append({"key": s.key, "label": s.label, "value": None, "change_3m": None, "zscore": None, "signal": "neutral"})
+                    continue
+                values = raw.iloc[:, 0]
+                if s.is_index:
+                    values = _series_to_pct_change(values)
+                    values = values.dropna() if values is not None else values
+                if values is None or values.empty:
+                    items.append({"key": s.key, "label": s.label, "value": None, "change_3m": None, "zscore": None, "signal": "neutral"})
+                    continue
+
+                latest = _safe_float(values.iloc[-1])
+                z = _zscore([float(v) for v in values.tail(60).tolist() if _safe_float(v) is not None])
+                change = _subfactor_3m_change(values)
+                signal = _subfactor_signal(z, change, s.higher_is_better)
+
+                if z is not None:
+                    effective = z if s.higher_is_better else -z
+                    cat_scores.append(effective)
+                    all_scores.append(effective)
+
+                items.append({
+                    "key": s.key,
+                    "label": s.label,
+                    "value": round(latest, 2) if latest is not None else None,
+                    "unit": s.unit,
+                    "change_3m": change,
+                    "zscore": round(z, 2) if z is not None else None,
+                    "signal": signal,
+                })
+            except Exception:
+                items.append({"key": s.key, "label": s.label, "value": None, "change_3m": None, "zscore": None, "signal": "neutral"})
+
+        cat_score = round(float(np.mean(cat_scores)), 2) if cat_scores else 0.0
+        categories[cat_name] = {"score": cat_score, "indicators": items}
+
+    # Determine cycle stage from composite score
+    composite = round(float(np.mean(all_scores)), 2) if all_scores else 0.0
+    growth_score = categories.get("Growth", {}).get("score", 0)
+    price_score = categories.get("Prices", {}).get("score", 0)
+
+    # 4-stage cycle: growth momentum + price momentum
+    if growth_score > 0 and price_score <= 0:
+        stage = "Early Expansion"
+    elif growth_score > 0 and price_score > 0:
+        stage = "Late Expansion"
+    elif growth_score <= 0 and price_score > 0:
+        stage = "Early Contraction"
+    else:
+        stage = "Late Contraction"
+
+    return {
+        "updated_at": datetime.utcnow().isoformat() + "Z",
+        "composite_score": composite,
+        "cycle_stage": stage,
+        "categories": categories,
+    }
+
+
 def get_country_series(country: str, indicator: str, period: str = "5y") -> Dict[str, Any]:
     """Return a time series for a single country/indicator pair."""
     mappings = COUNTRY_SERIES.get(country)

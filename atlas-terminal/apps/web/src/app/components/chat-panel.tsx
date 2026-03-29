@@ -44,11 +44,11 @@ export function ChatPanel() {
       } else {
         setMessages((prev) => [
           ...prev,
-          { role: "assistant", content: "Settings에서 Gemini API Key를 설정해주세요." },
+          { role: "assistant", content: "Please set your Gemini API Key in Settings." },
         ]);
       }
     } catch {
-      setMessages((prev) => [...prev, { role: "assistant", content: "연결 오류. 다시 시도해주세요." }]);
+      setMessages((prev) => [...prev, { role: "assistant", content: "Connection error. Please try again." }]);
     }
     setLoading(false);
   }

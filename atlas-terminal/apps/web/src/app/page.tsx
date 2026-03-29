@@ -6,7 +6,7 @@ import { ETFOverview } from "./components/overview/ETFOverview";
 import { CommodityOverview } from "./components/overview/CommodityOverview";
 
 export default function OverviewPage() {
-  const { ticker } = useTicker();
+  const { ticker, initialized } = useTicker();
   const [sector, setSector] = useState<Record<string, unknown> | null>(null);
   const [health, setHealth] = useState<Record<string, unknown> | null>(null);
   const [overview, setOverview] = useState<Record<string, unknown> | null>(null);
@@ -14,19 +14,26 @@ export default function OverviewPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (!initialized) return;
+    const ac = new AbortController();
     setLoading(true);
+    setSector(null);
+    setHealth(null);
+    setOverview(null);
     Promise.all([
-      fetch(`/api/market/sector/${ticker}`).then((r) => r.ok ? r.json() : null),
-      fetch(`/api/market/health/${ticker}`).then((r) => r.ok ? r.json() : null),
-      fetch(`/api/market/overview/${ticker}`).then((r) => r.ok ? r.json() : null),
+      fetch(`/api/market/sector/${ticker}`, { signal: ac.signal }).then((r) => r.ok ? r.json() : null),
+      fetch(`/api/market/health/${ticker}`, { signal: ac.signal }).then((r) => r.ok ? r.json() : null),
+      fetch(`/api/market/overview/${ticker}`, { signal: ac.signal }).then((r) => r.ok ? r.json() : null),
     ]).then(([s, h, d]) => {
+      if (ac.signal.aborted) return;
       setSector(s);
       setHealth(h);
       setAssetType(d?.asset_type || "equity");
       setOverview(d?.data || null);
       setLoading(false);
-    }).catch(() => setLoading(false));
-  }, [ticker]);
+    }).catch(() => { if (!ac.signal.aborted) setLoading(false); });
+    return () => ac.abort();
+  }, [ticker, initialized]);
 
   if (loading) return <LoadingState />;
 

@@ -53,6 +53,22 @@ async def macro_smart_money() -> Dict[str, Any]:
         }
 
 
+@router.get("/subfactors", summary="4-category macro subfactor breakdown + cycle stage")
+async def macro_subfactors() -> Dict[str, Any]:
+    from server.services.macro_cycle import get_subfactor_breakdown
+
+    try:
+        return await asyncio.to_thread(get_subfactor_breakdown)
+    except Exception as exc:
+        return {
+            "updated_at": None,
+            "composite_score": 0.0,
+            "cycle_stage": "Unknown",
+            "categories": {},
+            "error": str(exc),
+        }
+
+
 @router.get("/fred/{series_id}", summary="FRED time series (public CSV)")
 async def macro_fred(
     series_id: str,
@@ -126,7 +142,7 @@ async def macro_economic_calendar(
 
 @router.get("/ecos", summary="Korea Bank ECOS (requires ECOS_API_KEY)")
 async def macro_ecos(
-    stat_code: str = Query(..., description="ECOS 통계표 코드"),
+    stat_code: str = Query(..., description="ECOS statistics table code"),
     cycle: str = Query("M", description="D/W/M/Q/S/Y"),
     start_ym: str = Query("201501"),
     end_ym: Optional[str] = Query(None),
