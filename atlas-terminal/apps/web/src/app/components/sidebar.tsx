@@ -16,6 +16,7 @@ const NAV_ITEMS = [
   { href: "/screener", label: "Screener", icon: "🎯" },
   { href: "/portfolio", label: "Portfolio", icon: "💼" },
   { href: "/filings", label: "Filings", icon: "📑" },
+  { href: "/report", label: "Report", icon: "🏦" },
 ];
 
 export function Sidebar() {

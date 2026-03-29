@@ -34,6 +34,7 @@ async def get_sections(
         from server.services.sec_parser import (
             download_and_extract_all_items,
             get_10k_sections,
+            get_sec_filing_url,
             load_10k_html_slice,
         )
 
@@ -45,6 +46,17 @@ async def get_sections(
                 sections = download_and_extract_all_items(ticker.upper(), email)
                 status = "downloaded"
                 html_payload = load_10k_html_slice(ticker.upper()) or ""
+
+        # Resolve actual filing document URL from SEC EDGAR
+        filing_url = get_sec_filing_url(ticker.upper())
+        links = {}
+        if filing_url:
+            links["View Original 10-K Filing"] = filing_url
+        links["SEC EDGAR Filings"] = (
+            f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany"
+            f"&CIK={ticker.upper()}&type=10-K&dateb=&owner=include&count=5"
+        )
+
         return EdgarSectionsResponse(
             status=status,
             item1a=sections.get("item1a", ""),
@@ -53,6 +65,7 @@ async def get_sections(
             item8=sections.get("item8", ""),
             item9a=sections.get("item9a", ""),
             html=html_payload,
+            links=links,
         )
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

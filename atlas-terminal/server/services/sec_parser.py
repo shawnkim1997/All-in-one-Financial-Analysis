@@ -7,21 +7,87 @@ local JSON cache under ``data/``.
 """
 
 import json
+import logging
 import re
 import tempfile
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
+
+import httpx
 
 from bs4 import BeautifulSoup
 from bs4.element import Comment, Tag
 
 from server.services.text_chunker import clean_text_for_llm, smart_chunk
 
+logger = logging.getLogger(__name__)
+
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
 
 _DATA_DIR: Path = Path(__file__).resolve().parents[3] / "data"
+
+# ---------------------------------------------------------------------------
+# SEC EDGAR Filing URL Resolver
+# ---------------------------------------------------------------------------
+
+_CIK_CACHE: Dict[str, int] = {}
+_SEC_HEADERS = {"User-Agent": "ATLAS-Terminal admin@atlas.local"}
+
+
+def _resolve_cik(ticker: str) -> Optional[int]:
+    """Resolve ticker → CIK via SEC's company_tickers.json."""
+    t = ticker.upper().strip()
+    if t in _CIK_CACHE:
+        return _CIK_CACHE[t]
+    try:
+        resp = httpx.get(
+            "https://www.sec.gov/files/company_tickers.json",
+            headers=_SEC_HEADERS,
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        for entry in data.values():
+            tk = entry.get("ticker", "")
+            cik = entry.get("cik_str")
+            if tk:
+                _CIK_CACHE[tk.upper()] = int(cik)
+        return _CIK_CACHE.get(t)
+    except Exception:
+        logger.warning("Failed to resolve CIK for %s", t)
+        return None
+
+
+def get_sec_filing_url(ticker: str) -> Optional[str]:
+    """Return the URL of the latest 10-K filing document on SEC EDGAR."""
+    cik = _resolve_cik(ticker)
+    if cik is None:
+        return None
+    cik_padded = str(cik).zfill(10)
+    try:
+        resp = httpx.get(
+            f"https://data.sec.gov/submissions/CIK{cik_padded}.json",
+            headers=_SEC_HEADERS,
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data: Dict[str, Any] = resp.json()
+        recent = data.get("filings", {}).get("recent", {})
+        forms = recent.get("form", [])
+        accessions = recent.get("accessionNumber", [])
+        docs = recent.get("primaryDocument", [])
+        for i, form in enumerate(forms):
+            if form in ("10-K", "10-K/A"):
+                acc_no_dash = accessions[i].replace("-", "")
+                return (
+                    f"https://www.sec.gov/Archives/edgar/data"
+                    f"/{cik_padded}/{acc_no_dash}/{docs[i]}"
+                )
+    except Exception:
+        logger.warning("Failed to get filing URL for %s", ticker)
+    return None
 
 # ---------------------------------------------------------------------------
 # Section-header regex patterns
@@ -352,8 +418,15 @@ def _best_anchor_parent_for_text_node(text_node) -> Optional[Tag]:
 
 
 def inject_sec_item_anchor_ids(soup: BeautifulSoup) -> None:
-    """Set ``id=\"sec-item-*\"`` on heading-like nodes for Item 1A, 3, 7, 8, 9A."""
-    assigned: set[str] = set()
+    """Set ``id=\"sec-item-*\"`` on heading-like nodes for Item 1A, 3, 7, 8, 9A.
+
+    Strategy: collect *all* candidate matches per Item, then prefer a match
+    that lives outside the first table-of-contents table — specifically one
+    whose host element is an ``<h*>``, ``<p>``, or ``<div>`` (not a ``<td>``
+    in the TOC).  Falls back to the last candidate if no heading match exists.
+    """
+    # Collect all candidates per el_id: list of (text_node, host_tag)
+    candidates: dict[str, list[tuple]] = {spec[0]: [] for spec in _SEC_ITEM_INJECT_SPECS}
     for text in soup.find_all(string=True):
         if isinstance(text, Comment):
             continue
@@ -361,27 +434,46 @@ def inject_sec_item_anchor_ids(soup: BeautifulSoup) -> None:
         if not text_val.strip():
             continue
         for el_id, regexes in _SEC_ITEM_INJECT_SPECS:
-            if el_id in assigned:
-                continue
             if not any(rx.search(text_val) for rx in regexes):
                 continue
             host = _best_anchor_parent_for_text_node(text)
-            if host is None:
-                continue
-            host["id"] = el_id
-            assigned.add(el_id)
-            break
+            if host is not None:
+                candidates[el_id].append((text, host))
+            break  # only match first spec for this text node
+
+    assigned: set[str] = set()
+    for el_id, _ in _SEC_ITEM_INJECT_SPECS:
+        cands = candidates.get(el_id, [])
+        if not cands:
+            continue
+        # Prefer a heading-like host (h1-h6, p, div) that is NOT inside the TOC table
+        best = None
+        for _text, host in cands:
+            host_name = (host.name or "").lower()
+            if host_name in ("h1", "h2", "h3", "h4", "h5", "h6", "p", "div"):
+                best = host
+                # Don't break — prefer later (actual section header) over earlier (TOC)
+        if best is None and len(cands) > 1:
+            # If no heading host, use the last match (skip the first/TOC one)
+            best = cands[-1][1]
+        elif best is None:
+            best = cands[0][1]
+        best["id"] = el_id
+        assigned.add(el_id)
 
 
 def prepare_native_html_fragment_from_10k_raw(raw_html: str) -> str:
-    """Slice Items 1A–9A, sanitize, inject ``sec-item-*`` anchors, return body HTML fragment."""
+    """Sanitize full 10-K HTML, inject ``sec-item-*`` anchors, return body HTML fragment.
+
+    The entire document is preserved (table of contents, all Items, tables, etc.)
+    so the user sees the original formatted filing inside the app.
+    """
     if not raw_html or len(raw_html) < 100:
         return ""
-    sliced = _slice_html_items_1a_to_9a(raw_html)
     try:
-        soup = BeautifulSoup(sliced, "lxml")
+        soup = BeautifulSoup(raw_html, "lxml")
     except Exception:
-        soup = BeautifulSoup(sliced, "html.parser")
+        soup = BeautifulSoup(raw_html, "html.parser")
     _sanitize_sec_html_soup(soup)
     inject_sec_item_anchor_ids(soup)
     if soup.body:
@@ -483,6 +575,7 @@ def _save_10k_to_cache(ticker: str, data: Dict[str, str]) -> None:
 def download_and_extract_all_items(ticker: str, email: str) -> Dict[str, str]:
     """Download latest 10-K, extract Items 1A/3/7/8/9A, clean and cache."""
     Downloader = _get_edgar_downloader()
+    raw_html: Optional[str] = None
     with tempfile.TemporaryDirectory() as tmpdir:
         download_root = Path(tmpdir)
         dl = Downloader("FQDC-10K-Analyzer", email, str(download_root))
@@ -493,6 +586,8 @@ def download_and_extract_all_items(ticker: str, email: str) -> Dict[str, str]:
         full_text = get_main_10k_text(filing_dir)
         if not full_text:
             raise ValueError("Could not extract text from the 10-K.")
+        # Read raw HTML while tempdir still exists
+        raw_html = read_main_10k_html_raw(filing_dir)
 
     item1a = find_item_section_generic(full_text, ITEM1A_PATTERNS, 1, ["Risk", "Factors"], max_chars=80_000)
     item3 = _extract_item_from_full(full_text, ITEM3_PATTERNS, 3, ["Legal", "Proceedings"], max_chars=40_000)
@@ -514,7 +609,6 @@ def download_and_extract_all_items(ticker: str, email: str) -> Dict[str, str]:
     }
     _save_10k_to_cache(ticker, data)
 
-    raw_html = read_main_10k_html_raw(filing_dir)
     if raw_html:
         fragment = prepare_native_html_fragment_from_10k_raw(raw_html)
         if fragment:

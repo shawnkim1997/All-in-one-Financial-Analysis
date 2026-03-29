@@ -375,3 +375,142 @@ Output rules:
     except Exception as exc:
         logger.exception("anomaly-explain Gemini failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+# ---------------------------------------------------------------------------
+# Translation endpoint
+# ---------------------------------------------------------------------------
+
+class TranslateRequest(BaseModel):
+    text: str = Field(..., description="Text to translate")
+    target_lang: str = Field("ko", description="Target language code (ko, ja, zh, etc.)")
+    api_key: str = ""
+
+
+@router.post("/translate", summary="Translate filing text via Gemini")
+async def translate_text(req: TranslateRequest):
+    """Translate SEC/DART filing section text to the target language."""
+    api_key = req.api_key or os.getenv("GOOGLE_API_KEY", "")
+    if not api_key:
+        raise HTTPException(status_code=400, detail="Gemini API key required")
+
+    text = req.text.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="No text to translate")
+
+    # Limit input to ~12,000 chars to stay within Gemini context
+    if len(text) > 12_000:
+        from server.services.text_chunker import smart_chunk
+        text = smart_chunk(text, max_chars=12_000)
+
+    lang_names = {
+        "ko": "Korean", "ja": "Japanese", "zh": "Chinese (Simplified)",
+        "es": "Spanish", "fr": "French", "de": "German",
+    }
+    lang_name = lang_names.get(req.target_lang, req.target_lang)
+
+    prompt = (
+        f"Translate the following SEC filing text to {lang_name}. "
+        "Rules:\n"
+        "- Preserve all numbers, financial figures, dates, and ticker symbols exactly as-is.\n"
+        "- Keep technical financial terms (e.g., EBITDA, GAAP, P/E) in English.\n"
+        "- Maintain paragraph structure and formatting.\n"
+        "- Translate naturally, not word-for-word.\n\n"
+        f"---\n{text}\n---"
+    )
+
+    try:
+        result = _call_gemini(api_key, prompt, max_tokens=8192, temperature=0.2)
+        return {"translated_text": result}
+    except Exception as exc:
+        logger.exception("Translation failed")
+        raise HTTPException(status_code=500, detail=f"Translation failed: {exc}") from exc
+
+
+# ---------------------------------------------------------------------------
+# Institutional Analysis — Wall Street 10
+# ---------------------------------------------------------------------------
+
+class InstitutionalRequest(BaseModel):
+    ticker: str
+    api_key: str = ""
+    lang: str = Field("en", description="Output language: en, ko, ja")
+
+
+@router.post("/institutional", summary="Wall Street 10 institutional analysis")
+async def institutional_analysis(req: InstitutionalRequest):
+    """Generate comprehensive institutional-grade analysis from 10 Wall Street perspectives.
+
+    Gathers all pre-computed quantitative data (DuPont, Altman Z, F-Score,
+    DCF, anomalies, peers) and feeds them to Gemini for multi-perspective
+    interpretation.  The LLM interprets numbers; it never computes them.
+    """
+    api_key = req.api_key or os.getenv("GOOGLE_API_KEY", "")
+    if not api_key:
+        raise HTTPException(status_code=400, detail="Gemini API key required. Set in Settings.")
+
+    ticker = req.ticker.upper()
+
+    # 1) Gather all quantitative data
+    from server.services.institutional_report import (
+        gather_quantitative_context,
+        build_institutional_prompt,
+    )
+    try:
+        context = gather_quantitative_context(ticker)
+    except Exception as exc:
+        logger.exception("Failed to gather quant context for %s", ticker)
+        raise HTTPException(status_code=500, detail=f"Data gathering failed: {exc}") from exc
+
+    if len(context) < 200:
+        raise HTTPException(status_code=404, detail=f"Insufficient data for {ticker}")
+
+    # Extract F-Score for prompt
+    fscore = 0
+    try:
+        from server.services.research_dashboard import build_research_dashboard
+        dash = build_research_dashboard(ticker)
+        if dash:
+            fscore = dash.fscore_total
+    except Exception:
+        pass
+
+    # 2) Build prompt and call Gemini
+    prompt = build_institutional_prompt(ticker, context, fscore)
+
+    # Language instruction
+    if req.lang == "ko":
+        prompt += "\n\nIMPORTANT: Write the entire analysis in Korean (한국어). Keep financial terms (P/E, EBITDA, DCF, etc.) in English."
+    elif req.lang == "ja":
+        prompt += "\n\nIMPORTANT: Write the entire analysis in Japanese (日本語). Keep financial terms in English."
+
+    try:
+        raw = _call_gemini(api_key, prompt, max_tokens=8192, temperature=0.3)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Gemini call failed: {exc}") from exc
+
+    # 3) Parse JSON response
+    try:
+        parsed = _parse_llm_json_object(raw)
+    except json.JSONDecodeError:
+        # Return raw text as executive_summary if JSON parsing fails
+        parsed = {
+            "executive_summary": raw[:3000] if raw else "Analysis generation failed.",
+            "goldman_sachs": "",
+            "morgan_stanley": "",
+            "jp_morgan": "",
+            "blackrock": "",
+            "bridgewater": "",
+            "berkshire": "",
+            "citadel": "",
+            "two_sigma": "",
+            "elliott": "",
+        }
+
+    return {
+        "ticker": ticker,
+        "sections": parsed,
+        "quant_context": context,
+    }
