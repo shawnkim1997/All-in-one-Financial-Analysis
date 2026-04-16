@@ -1,23 +1,14 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
+import { Bot, SendHorizontal } from "lucide-react";
+import { useTicker } from "../lib/use-ticker";
 
 export function ChatPanel() {
   const [messages, setMessages] = useState<Array<{ role: string; content: string }>>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [ticker, setTicker] = useState("AAPL");
   const scrollRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const saved = localStorage.getItem("atlas_active_ticker");
-    if (saved) setTicker(saved);
-    const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (detail) setTicker(detail);
-    };
-    window.addEventListener("atlas-ticker-change", handler);
-    return () => window.removeEventListener("atlas-ticker-change", handler);
-  }, []);
+  const { ticker } = useTicker();
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -60,25 +51,32 @@ export function ChatPanel() {
   ];
 
   return (
-    <aside className="w-[380px] bg-bg-secondary border-l border-border fixed top-[52px] bottom-0 right-0 flex flex-col z-40">
-      <div className="p-4 border-b border-border font-bold text-lg text-text-primary">
-        🤖 AI Copilot
+    <aside className="fixed bottom-0 right-0 top-[56px] z-40 flex w-[380px] flex-col border-l border-border bg-surface-raised">
+      <div className="border-b border-border bg-surface-sunken px-4 py-4">
+        <div className="flex items-center gap-3">
+          <div className="rounded-full bg-brand-navy/10 p-2 text-brand-navy">
+            <Bot className="h-5 w-5" />
+          </div>
+          <div>
+            <div className="font-serif text-lg font-bold text-brand-navy">AI Copilot</div>
+            <div className="text-xs uppercase tracking-[0.12em] text-text-muted">Context: {ticker}</div>
+          </div>
+        </div>
       </div>
 
-      <div ref={scrollRef} className="flex-1 p-4 overflow-y-auto flex flex-col gap-3">
+      <div ref={scrollRef} className="flex flex-1 flex-col gap-3 overflow-y-auto bg-transparent p-4">
         {messages.length === 0 ? (
-          <div className="text-text-secondary text-sm">
+          <div className="text-sm text-text-secondary">
             <p>
-              Ask me anything about{" "}
-              <span className="text-accent-green font-semibold">{ticker}</span>.
+              Ask me anything about <span className="font-semibold text-brand-navy">{ticker}</span>.
             </p>
-            <p className="mt-3 font-semibold text-text-primary">Try:</p>
-            <ul className="flex flex-col gap-1.5 mt-2">
+            <p className="mt-4 text-xs font-semibold uppercase tracking-[0.12em] text-text-muted">Suggested prompts</p>
+            <ul className="mt-2 flex flex-col gap-2">
               {suggestions.map((q) => (
                 <li
                   key={q}
                   onClick={() => setInput(q)}
-                  className="px-3 py-2.5 bg-bg-card rounded-lg cursor-pointer text-sm text-text-primary hover:bg-bg-hover transition-colors"
+                  className="cursor-pointer rounded-md border border-border bg-surface-raised px-3 py-2.5 text-sm text-text-primary shadow-card transition-colors hover:bg-surface-sunken"
                 >
                   {q}
                 </li>
@@ -89,32 +87,33 @@ export function ChatPanel() {
           messages.map((m, i) => (
             <div
               key={i}
-              className={`px-3.5 py-2.5 rounded-lg text-sm leading-relaxed max-w-[90%] whitespace-pre-wrap ${
+              className={`max-w-[90%] whitespace-pre-wrap rounded-md px-3.5 py-2.5 text-sm leading-relaxed shadow-card ${
                 m.role === "user"
-                  ? "bg-bg-card text-text-primary self-end"
-                  : "bg-accent-green/10 text-text-primary self-start"
+                  ? "self-end bg-brand-navy text-white"
+                  : "self-start border border-border bg-surface-raised text-text-primary"
               }`}
             >
               {m.content}
             </div>
           ))
         )}
-        {loading && <div className="text-accent-green text-sm animate-pulse">Thinking...</div>}
+        {loading && <div className="text-sm text-brand-blue animate-pulse">Thinking...</div>}
       </div>
 
-      <div className="p-3 border-t border-border">
-        <div className="flex gap-2 bg-bg-card rounded-lg border border-border px-3.5 py-2.5">
+      <div className="border-t border-border bg-surface-raised p-3">
+        <div className="flex gap-2 rounded-md border border-border bg-surface-sunken px-3.5 py-2.5">
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSend()}
             placeholder="Ask anything..."
-            className="flex-1 bg-transparent border-none text-text-primary outline-none"
+            className="flex-1 border-none bg-transparent text-text-primary outline-none"
           />
           <button
             onClick={handleSend}
-            className="bg-accent-green text-bg-primary border-none rounded-md px-4 py-1.5 font-semibold cursor-pointer text-sm hover:opacity-90 transition-opacity"
+            className="inline-flex items-center gap-1 rounded-md border-none bg-brand-navy px-4 py-1.5 text-sm font-semibold text-white transition-opacity hover:bg-brand-blue"
           >
+            <SendHorizontal className="h-4 w-4" />
             Send
           </button>
         </div>

@@ -10,6 +10,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { chartPalette } from "../../lib/chart-theme";
 
 export interface CopperGoldRow {
   date: string;
@@ -34,7 +35,7 @@ function RoroGauge({ z, label }: { z: number | null; label: string | null }) {
         <path
           d="M 30 100 A 70 70 0 0 1 170 100"
           fill="none"
-          stroke="#2A2A3A"
+          stroke={chartPalette.grid}
           strokeWidth="10"
           strokeLinecap="round"
         />
@@ -48,21 +49,21 @@ function RoroGauge({ z, label }: { z: number | null; label: string | null }) {
         />
         <defs>
           <linearGradient id="roroGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="#FF4757" />
-            <stop offset="50%" stopColor="#FFD93D" />
-            <stop offset="100%" stopColor="#00D4AA" />
+            <stop offset="0%" stopColor={chartPalette.red} />
+            <stop offset="50%" stopColor={chartPalette.gold} />
+            <stop offset="100%" stopColor={chartPalette.green} />
           </linearGradient>
         </defs>
-        <line x1={cx} y1={cy} x2={x2} y2={y2} stroke="#F3F4F6" strokeWidth="3" strokeLinecap="round" />
-        <circle cx={cx} cy={cy} r="6" fill="#00D4AA" />
-        <text x="30" y="108" fill="#6B7280" fontSize="9" fontFamily="monospace">
+        <line x1={cx} y1={cy} x2={x2} y2={y2} stroke={chartPalette.text} strokeWidth="3" strokeLinecap="round" />
+        <circle cx={cx} cy={cy} r="6" fill={chartPalette.navy} />
+        <text x="30" y="108" fill={chartPalette.textMuted} fontSize="9" fontFamily="monospace">
           Fear
         </text>
-        <text x="150" y="108" fill="#6B7280" fontSize="9" fontFamily="monospace">
+        <text x="150" y="108" fill={chartPalette.textMuted} fontSize="9" fontFamily="monospace">
           Greed
         </text>
       </svg>
-      <p className="text-accent-green font-mono text-lg mt-1">{label ?? "—"}</p>
+      <p className="mt-1 font-mono text-lg text-brand-navy">{label ?? "—"}</p>
       <p className="text-text-muted text-xs font-mono">Z = {z != null ? z.toFixed(2) : "—"}</p>
     </div>
   );
@@ -79,7 +80,7 @@ export function SmartMoneyPanel({
 }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-stretch">
-      <div className="bg-bg-secondary/40 rounded-lg border border-border/50 p-4 flex items-center justify-center">
+      <div className="flex items-center justify-center rounded-lg border border-border/50 bg-surface-sunken p-4">
         <RoroGauge z={roroZ} label={roroLabel} />
       </div>
       <div className="min-h-[260px]">
@@ -91,19 +92,19 @@ export function SmartMoneyPanel({
         ) : (
           <ResponsiveContainer width="100%" height={260}>
             <LineChart data={copperGold} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#2A2A3A" />
-              <XAxis dataKey="date" tick={{ fill: "#9CA3AF", fontSize: 9 }} minTickGap={32} />
-              <YAxis tick={{ fill: "#9CA3AF", fontSize: 10 }} domain={["auto", "auto"]} />
+              <CartesianGrid strokeDasharray="3 3" stroke={chartPalette.grid} />
+              <XAxis dataKey="date" tick={{ fill: chartPalette.textMuted, fontSize: 9 }} minTickGap={32} />
+              <YAxis tick={{ fill: chartPalette.textMuted, fontSize: 10 }} domain={["auto", "auto"]} />
               <Tooltip
-                contentStyle={{ background: "#1A1A26", border: "1px solid #2A2A3A", fontSize: 12 }}
+                contentStyle={{ background: chartPalette.canvas, border: `1px solid ${chartPalette.grid}`, fontSize: 12 }}
               />
               <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Line type="monotone" dataKey="ratio" name="Cu/Au" stroke="#FFD93D" dot={false} strokeWidth={2} />
+              <Line type="monotone" dataKey="ratio" name="Cu/Au" stroke={chartPalette.gold} dot={false} strokeWidth={2} />
               <Line
                 type="monotone"
                 dataKey="ratio_ma20"
                 name="MA20"
-                stroke="#4DA6FF"
+                stroke={chartPalette.blue}
                 dot={false}
                 strokeWidth={1.5}
               />

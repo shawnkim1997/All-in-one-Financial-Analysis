@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+from functools import partial
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Query
@@ -13,60 +14,74 @@ from server.services.smart_money_service import get_smart_money_snapshot
 from server.services.yield_fx_service import get_yield_fx_pair
 
 router = APIRouter()
+_MACRO_TIMEOUT_SECONDS = 8.0
+
+
+async def _run_macro_task(
+    func: Any,
+    fallback: Dict[str, Any],
+    *args: Any,
+    timeout: float = _MACRO_TIMEOUT_SECONDS,
+) -> Dict[str, Any]:
+    try:
+        call = partial(func, *args)
+        return await asyncio.wait_for(asyncio.to_thread(call), timeout=timeout)
+    except asyncio.TimeoutError:
+        return {**fallback, "error": "upstream_timeout"}
+    except Exception as exc:
+        return {**fallback, "error": str(exc)}
 
 
 @router.get("/quadrant", summary="Global growth vs inflation quadrant (Z-scores)")
 async def macro_quadrant() -> Dict[str, Any]:
-    try:
-        return await asyncio.to_thread(get_global_macro_quadrant)
-    except Exception as exc:
-        return {"updated_at": None, "points": [], "error": str(exc)}
+    return await _run_macro_task(
+        get_global_macro_quadrant,
+        {"updated_at": None, "points": []},
+    )
 
 
 @router.get("/yield-fx", summary="US10Y spread vs FX (usdjpy|eurusd|usdkrw)")
 async def macro_yield_fx(
     pair: str = Query("usdjpy", description="usdjpy, eurusd, or usdkrw"),
 ) -> Dict[str, Any]:
-    try:
-        return await asyncio.to_thread(get_yield_fx_pair, pair)
-    except Exception as exc:
-        return {
+    return await _run_macro_task(
+        get_yield_fx_pair,
+        {
             "pair": pair,
             "updated_at": None,
             "series": [],
-            "error": str(exc),
-        }
+        },
+        pair,
+    )
 
 
 @router.get("/smart-money", summary="Copper/Gold + RORO composite")
 async def macro_smart_money() -> Dict[str, Any]:
-    try:
-        return await asyncio.to_thread(get_smart_money_snapshot)
-    except Exception as exc:
-        return {
+    return await _run_macro_task(
+        get_smart_money_snapshot,
+        {
             "updated_at": None,
             "roro_z": None,
             "roro_label": None,
             "copper_gold": [],
             "components": {},
-            "error": str(exc),
-        }
+        },
+    )
 
 
 @router.get("/subfactors", summary="4-category macro subfactor breakdown + cycle stage")
 async def macro_subfactors() -> Dict[str, Any]:
     from server.services.macro_cycle import get_subfactor_breakdown
 
-    try:
-        return await asyncio.to_thread(get_subfactor_breakdown)
-    except Exception as exc:
-        return {
+    return await _run_macro_task(
+        get_subfactor_breakdown,
+        {
             "updated_at": None,
             "composite_score": 0.0,
             "cycle_stage": "Unknown",
             "categories": {},
-            "error": str(exc),
-        }
+        },
+    )
 
 
 @router.get("/fred/{series_id}", summary="FRED time series (public CSV)")
@@ -75,12 +90,19 @@ async def macro_fred(
     start: Optional[str] = Query(None, description="YYYY-MM-DD"),
     end: Optional[str] = Query(None, description="YYYY-MM-DD"),
 ) -> Dict[str, Any]:
-    rows = await asyncio.to_thread(
-        macro_fetcher.fetch_fred_series,
-        series_id,
-        start,
-        end,
-    )
+    try:
+        rows = await asyncio.wait_for(
+            asyncio.to_thread(
+                macro_fetcher.fetch_fred_series,
+                series_id,
+                start,
+                end,
+            ),
+            timeout=_MACRO_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        rows = []
+        return {"series": series_id.strip().upper(), "count": 0, "data": rows, "error": "upstream_timeout"}
     return {"series": series_id.strip().upper(), "count": len(rows), "data": rows}
 
 
@@ -94,28 +116,27 @@ async def macro_oecd_mei() -> Dict[str, Any]:
 async def macro_oecd_cli() -> Dict[str, Any]:
     from server.services.oecd_cycle import get_oecd_cli_snapshot
 
-    try:
-        return await asyncio.to_thread(get_oecd_cli_snapshot)
-    except Exception as exc:
-        return {"updated_at": None, "countries": [], "error": str(exc)}
+    return await _run_macro_task(
+        get_oecd_cli_snapshot,
+        {"updated_at": None, "countries": []},
+    )
 
 
 @router.get("/snapshot", summary="Macro cycle heatmap, countries, asset valuation")
 async def macro_snapshot() -> Dict[str, Any]:
     from server.services.macro_cycle import get_macro_cycle_snapshot
 
-    try:
-        return await asyncio.to_thread(get_macro_cycle_snapshot)
-    except Exception as exc:
-        return {
+    return await _run_macro_task(
+        get_macro_cycle_snapshot,
+        {
             "updated_at": None,
             "cycle_score": 0.0,
             "regime": "Unknown",
             "cycle_heatmap": [],
             "country_heatmap": [],
             "asset_valuation": [],
-            "error": str(exc),
-        }
+        },
+    )
 
 
 @router.get("/korea", summary="Korea indicators (ECOS or yfinance fallback)")
@@ -134,10 +155,11 @@ async def macro_economic_calendar(
 ) -> Dict[str, Any]:
     from server.services.economic_calendar import get_economic_calendar
 
-    try:
-        return await asyncio.to_thread(get_economic_calendar, days)
-    except Exception as exc:
-        return {"events": [], "next_high_impact": None, "total": 0, "error": str(exc)}
+    return await _run_macro_task(
+        get_economic_calendar,
+        {"events": [], "next_high_impact": None, "total": 0},
+        days,
+    )
 
 
 @router.get("/ecos", summary="Korea Bank ECOS (requires ECOS_API_KEY)")

@@ -1,5 +1,10 @@
 "use client";
 import { useEffect, useState, useRef } from "react";
+import { ChartContainer } from "../components/ui/ChartContainer";
+import { LoadingPulse } from "../components/ui/LoadingPulse";
+import { SectionHeading } from "../components/ui/SectionHeading";
+import { StatCard } from "../components/ui/StatCard";
+import { chartPalette, lightweightTheme } from "../lib/chart-theme";
 import { useTicker } from "../lib/use-ticker";
 
 interface Indicators {
@@ -67,10 +72,8 @@ export default function TechnicalPage() {
         chart = lc.createChart(chartRef.current!, {
           width: chartRef.current!.clientWidth,
           height: 400,
-          layout: { background: { color: "#1A1A26" }, textColor: "#9CA3AF" },
-          grid: { vertLines: { color: "#2A2A3A" }, horzLines: { color: "#2A2A3A" } },
+          ...lightweightTheme,
           crosshair: { mode: 0 },
-          timeScale: { borderColor: "#2A2A3A" },
         });
 
         // v5 API: use addSeries with series type constructor
@@ -80,12 +83,12 @@ export default function TechnicalPage() {
         if (CandlestickSeries && typeof chart.addSeries === "function") {
           // v5 path
           const candlestickSeries = chart.addSeries(CandlestickSeries, {
-            upColor: "#00D4AA",
-            downColor: "#FF4757",
-            borderUpColor: "#00D4AA",
-            borderDownColor: "#FF4757",
-            wickUpColor: "#00D4AA",
-            wickDownColor: "#FF4757",
+            upColor: chartPalette.green,
+            downColor: chartPalette.red,
+            borderUpColor: chartPalette.green,
+            borderDownColor: chartPalette.red,
+            wickUpColor: chartPalette.green,
+            wickDownColor: chartPalette.red,
           });
           candlestickSeries.setData(bars);
 
@@ -100,18 +103,18 @@ export default function TechnicalPage() {
             bars.map((b: ChartBar) => ({
               time: b.time,
               value: b.volume,
-              color: b.close >= b.open ? "rgba(0,212,170,0.3)" : "rgba(255,71,87,0.3)",
+              color: b.close >= b.open ? "rgba(45,139,94,0.24)" : "rgba(192,57,43,0.24)",
             }))
           );
         } else if (typeof chart.addCandlestickSeries === "function") {
           // v4 fallback
           const candlestickSeries = chart.addCandlestickSeries({
-            upColor: "#00D4AA",
-            downColor: "#FF4757",
-            borderUpColor: "#00D4AA",
-            borderDownColor: "#FF4757",
-            wickUpColor: "#00D4AA",
-            wickDownColor: "#FF4757",
+            upColor: chartPalette.green,
+            downColor: chartPalette.red,
+            borderUpColor: chartPalette.green,
+            borderDownColor: chartPalette.red,
+            wickUpColor: chartPalette.green,
+            wickDownColor: chartPalette.red,
           });
           candlestickSeries.setData(bars);
 
@@ -126,7 +129,7 @@ export default function TechnicalPage() {
             bars.map((b: ChartBar) => ({
               time: b.time,
               value: b.volume,
-              color: b.close >= b.open ? "rgba(0,212,170,0.3)" : "rgba(255,71,87,0.3)",
+              color: b.close >= b.open ? "rgba(45,139,94,0.24)" : "rgba(192,57,43,0.24)",
             }))
           );
         }
@@ -147,21 +150,15 @@ export default function TechnicalPage() {
     };
   }, [bars]);
 
-  if (loading) return <div className="flex items-center justify-center h-64"><div className="text-accent-green animate-pulse font-mono">Loading...</div></div>;
-
-  const rsiColor = indicators?.rsi_14
-    ? indicators.rsi_14 > 70 ? "text-accent-red" : indicators.rsi_14 < 30 ? "text-accent-green" : "text-text-primary"
-    : "text-text-primary";
+  if (loading) return <LoadingPulse label="Loading technical data…" />;
 
   const macdSignal = indicators?.macd
     ? indicators.macd.histogram > 0 ? "Bullish" : "Bearish"
     : "—";
 
   return (
-    <div>
-      <h1 className="text-2xl font-bold mb-6">
-        <span className="text-accent-green">{ticker}</span> Technical Analysis
-      </h1>
+    <div className="atlas-page">
+      <SectionHeading level={1}>{ticker} Technical Analysis</SectionHeading>
 
       {/* Period Selector */}
       <div className="flex gap-2 mb-4">
@@ -169,10 +166,10 @@ export default function TechnicalPage() {
           <button
             key={p}
             onClick={() => setPeriod(p)}
-            className={`px-3 py-1.5 rounded-md text-sm font-mono transition-all ${
+            className={`rounded-md px-3 py-1.5 text-sm font-mono transition-all ${
               period === p
-                ? "bg-accent-green text-bg-primary font-semibold"
-                : "bg-bg-card text-text-secondary hover:bg-bg-card/80"
+                ? "bg-brand-navy text-white font-semibold"
+                : "bg-surface-raised text-text-secondary shadow-card hover:bg-surface-sunken"
             }`}
           >
             {p.toUpperCase()}
@@ -181,43 +178,34 @@ export default function TechnicalPage() {
       </div>
 
       {/* Chart */}
-      <div className="bg-bg-card border border-border rounded-lg p-4 mb-6">
+      <ChartContainer title="Candlestick Chart" subtitle="OHLC with volume profile." className="mb-6">
         <div ref={chartRef} className="w-full" style={{ minHeight: 400 }} />
-      </div>
+      </ChartContainer>
 
       {/* Indicator Cards */}
       {indicators && (
         <div className="grid grid-cols-4 gap-3 mb-6">
-          <div className="bg-bg-card border border-border rounded-lg p-4">
-            <div className="text-text-muted text-xs mb-1">Current Price</div>
-            <div className="text-text-primary font-mono font-bold text-xl">${indicators.current_price?.toFixed(2)}</div>
-          </div>
-          <div className="bg-bg-card border border-border rounded-lg p-4">
-            <div className="text-text-muted text-xs mb-1">RSI (14)</div>
-            <div className={`font-mono font-bold text-xl ${rsiColor}`}>{indicators.rsi_14}</div>
-            <div className="text-text-muted text-xs mt-1">
-              {indicators.rsi_14 > 70 ? "Overbought" : indicators.rsi_14 < 30 ? "Oversold" : "Neutral"}
-            </div>
-          </div>
-          <div className="bg-bg-card border border-border rounded-lg p-4">
-            <div className="text-text-muted text-xs mb-1">MACD Signal</div>
-            <div className={`font-mono font-bold text-xl ${indicators.macd.histogram > 0 ? "text-accent-green" : "text-accent-red"}`}>
-              {macdSignal}
-            </div>
-            <div className="text-text-muted text-xs mt-1 font-mono">H: {indicators.macd.histogram.toFixed(4)}</div>
-          </div>
-          <div className="bg-bg-card border border-border rounded-lg p-4">
-            <div className="text-text-muted text-xs mb-1">ATR (14)</div>
-            <div className="text-text-primary font-mono font-bold text-xl">{indicators.atr_14}</div>
-            <div className="text-text-muted text-xs mt-1">Volatility</div>
-          </div>
+          <StatCard label="Current Price" value={`$${indicators.current_price?.toFixed(2)}`} />
+          <StatCard
+            label="RSI (14)"
+            value={indicators.rsi_14}
+            tone={indicators.rsi_14 > 70 ? "negative" : indicators.rsi_14 < 30 ? "positive" : "default"}
+            detail={indicators.rsi_14 > 70 ? "Overbought" : indicators.rsi_14 < 30 ? "Oversold" : "Neutral"}
+          />
+          <StatCard
+            label="MACD Signal"
+            value={macdSignal}
+            tone={indicators.macd.histogram > 0 ? "positive" : "negative"}
+            detail={`H: ${indicators.macd.histogram.toFixed(4)}`}
+          />
+          <StatCard label="ATR (14)" value={indicators.atr_14} detail="Volatility" />
         </div>
       )}
 
       {/* Moving Averages & Bollinger */}
       {indicators && (
         <div className="grid grid-cols-2 gap-4 mb-6">
-          <div className="bg-bg-card border border-border rounded-lg p-5">
+          <ChartContainer title="Moving Averages">
             <h3 className="text-text-secondary text-sm font-semibold mb-3">Moving Averages</h3>
             <div className="space-y-2">
               {[
@@ -232,8 +220,8 @@ export default function TechnicalPage() {
                   <div className="flex items-center gap-3">
                     <span className="text-text-primary font-mono">{ma.value != null ? `$${ma.value.toFixed(2)}` : "—"}</span>
                     <span className={`text-xs font-semibold px-2 py-0.5 rounded ${
-                      ma.signal === true ? "bg-accent-green/20 text-accent-green" :
-                      ma.signal === false ? "bg-accent-red/20 text-accent-red" : "bg-bg-primary text-text-muted"
+                      ma.signal === true ? "bg-fin-positive/15 text-fin-positive" :
+                      ma.signal === false ? "bg-fin-negative/15 text-fin-negative" : "bg-surface-sunken text-text-muted"
                     }`}>
                       {ma.signal === true ? "ABOVE" : ma.signal === false ? "BELOW" : "N/A"}
                     </span>
@@ -241,22 +229,22 @@ export default function TechnicalPage() {
                 </div>
               ))}
             </div>
-          </div>
+          </ChartContainer>
 
-          <div className="bg-bg-card border border-border rounded-lg p-5">
+          <ChartContainer title="Bollinger Bands" subtitle="20-period, 2 standard deviations.">
             <h3 className="text-text-secondary text-sm font-semibold mb-3">Bollinger Bands (20, 2)</h3>
             <div className="space-y-3">
               <div className="flex justify-between text-sm">
                 <span className="text-text-muted">Upper Band</span>
-                <span className="text-accent-red font-mono">${indicators.bollinger_bands.upper.toFixed(2)}</span>
+                <span className="font-mono text-fin-negative">${indicators.bollinger_bands.upper.toFixed(2)}</span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-text-muted">Middle Band</span>
-                <span className="text-accent-yellow font-mono">${indicators.bollinger_bands.middle.toFixed(2)}</span>
+                <span className="font-mono text-brand-gold">${indicators.bollinger_bands.middle.toFixed(2)}</span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-text-muted">Lower Band</span>
-                <span className="text-accent-green font-mono">${indicators.bollinger_bands.lower.toFixed(2)}</span>
+                <span className="font-mono text-fin-positive">${indicators.bollinger_bands.lower.toFixed(2)}</span>
               </div>
               <div className="flex justify-between text-sm border-t border-border pt-3">
                 <span className="text-text-muted">BB Width</span>
@@ -285,26 +273,26 @@ export default function TechnicalPage() {
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-text-muted">Histogram</span>
-                <span className={`font-mono ${indicators.macd.histogram > 0 ? "text-accent-green" : "text-accent-red"}`}>
+                <span className={`font-mono ${indicators.macd.histogram > 0 ? "text-fin-positive" : "text-fin-negative"}`}>
                   {indicators.macd.histogram.toFixed(4)}
                 </span>
               </div>
             </div>
-          </div>
+          </ChartContainer>
         </div>
       )}
 
       {/* Fibonacci Levels */}
       {fib && (
-        <div className="bg-bg-card border border-border rounded-lg p-5">
+        <ChartContainer title="Fibonacci Retracement">
           <h3 className="text-text-secondary text-sm font-semibold mb-3">Fibonacci Retracement</h3>
           <div className="grid grid-cols-7 gap-3">
             {Object.entries(fib.levels).map(([level, price]) => {
               const isNear = Math.abs(price - fib.current_price) / fib.current_price < 0.02;
               return (
-                <div key={level} className={`text-center p-3 rounded-lg ${isNear ? "bg-accent-green/10 border border-accent-green" : "bg-bg-primary"}`}>
+                <div key={level} className={`rounded-lg p-3 text-center ${isNear ? "border border-brand-gold bg-brand-gold/10" : "bg-surface-sunken"}`}>
                   <div className="text-text-muted text-xs mb-1">{level}</div>
-                  <div className={`font-mono text-sm font-semibold ${isNear ? "text-accent-green" : "text-text-primary"}`}>
+                  <div className={`font-mono text-sm font-semibold ${isNear ? "text-brand-navy" : "text-text-primary"}`}>
                     ${price.toFixed(2)}
                   </div>
                 </div>
@@ -314,7 +302,7 @@ export default function TechnicalPage() {
           <div className="mt-3 text-text-muted text-xs font-mono">
             52W Range: ${fib.low_52w.toFixed(2)} — ${fib.high_52w.toFixed(2)} | Current: ${fib.current_price.toFixed(2)}
           </div>
-        </div>
+        </ChartContainer>
       )}
     </div>
   );

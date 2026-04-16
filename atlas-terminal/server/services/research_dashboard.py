@@ -5,14 +5,14 @@ All quantitative; no LLM. See claude.md hybrid separation principle.
 
 from __future__ import annotations
 
+import threading
+import time
 from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 
 from server.utils.safe_float import _safe_float
 from server.services.market_fetcher import _get_annual_financials_balance_cashflow, _get_row_series
-from server.services.financial_metrics import get_dupont_altman_redflags_yoy
-from server.services.financial_metrics_ext import get_income_statement_sankey_data
 from server.models.schemas import (
     DuPontTreeNode,
     DuPontTreePayload,
@@ -30,6 +30,11 @@ try:
     import yfinance as yf
 except ImportError:
     yf = None  # type: ignore[assignment]
+
+_DASHBOARD_CACHE_TTL_SECONDS = 300
+_dashboard_cache_lock = threading.RLock()
+_dashboard_cache: Dict[str, tuple[float, ResearchDashboardResponse]] = {}
+_dashboard_inflight: Dict[str, threading.Event] = {}
 
 _FSCORE_KEYS = [
     ("profitable", "Net income > 0"),
@@ -197,15 +202,80 @@ def _dupont_tree_from_df(dupont_df: pd.DataFrame) -> Optional[DuPontTreePayload]
     )
 
 
-def _build_sankey_nivo(ticker: str) -> SankeyGraphPayload:
-    d = get_income_statement_sankey_data(ticker)
-    rev = max(d.get("revenue") or 0, 1)
-    cogs = min(abs(d.get("cogs") or 0), rev * 0.999)
-    gp = max(d.get("gross_profit") or 0, 0)
-    opex = max(d.get("opex") or 0, 0)
-    oi = d.get("operating_income") or 0
-    tax = max(d.get("tax_interest_other") or 0, 0)
-    ni = d.get("net_income") or 0
+def _build_dupont_tree_from_statements(fin: pd.DataFrame, bal: pd.DataFrame) -> Optional[DuPontTreePayload]:
+    if fin is None or fin.empty or bal is None or bal.empty:
+        return None
+
+    rev = _get_row_series(fin, "Total Revenue", "Revenue", "Net Revenue")
+    ni = _get_row_series(fin, "Net Income", "Net Income Common Stockholders")
+    total_assets = _get_row_series(bal, "Total Assets")
+    total_equity = _get_row_series(
+        bal,
+        "Total Stockholder Equity",
+        "Stockholders Equity",
+        "Total Equity Gross Minority Interest",
+    )
+    if rev is None or ni is None or total_assets is None or total_equity is None:
+        return None
+
+    rows: List[Dict[str, Any]] = []
+    for i, d in enumerate(fin.columns[:6]):
+        revenue = _safe_float(rev.get(d))
+        net_income = _safe_float(ni.get(d))
+        assets = _safe_float(total_assets.get(d))
+        equity = _safe_float(total_equity.get(d))
+        if not revenue or not assets or not equity:
+            continue
+
+        npm = (net_income / revenue * 100) if net_income is not None else None
+        at = revenue / assets if assets else None
+        em = assets / equity if equity else None
+        roe = (net_income / equity * 100) if (net_income is not None and equity) else None
+        if npm is None or at is None or em is None or roe is None:
+            continue
+
+        yr = int(str(d)[:4]) if str(d)[:4].isdigit() else (d.year if hasattr(d, "year") else (2024 - i))
+        rows.append(
+            {
+                "Year": yr,
+                "Revenue": revenue,
+                "Net Income": net_income,
+                "NPM %": round(npm, 2),
+                "Asset Turnover": round(at, 4),
+                "Equity Mult.": round(em, 2),
+                "ROE %": round(roe, 2),
+            }
+        )
+
+    if not rows:
+        return None
+
+    return _dupont_tree_from_df(pd.DataFrame(rows))
+
+
+def _build_sankey_nivo_from_fin(fin: pd.DataFrame) -> SankeyGraphPayload:
+    if fin is None or fin.empty:
+        return SankeyGraphPayload(nodes=[], links=[])
+
+    rev = _get_row_series(fin, "Total Revenue", "Revenue", "Net Revenue")
+    cogs = _get_row_series(fin, "Cost Of Revenue", "Cost Of Goods Sold")
+    gross = _get_row_series(fin, "Gross Profit")
+    op_inc = _get_row_series(fin, "Operating Income", "EBIT")
+    ni = _get_row_series(fin, "Net Income", "Net Income Common Stockholders")
+    if rev is None or len(rev) == 0:
+        return SankeyGraphPayload(nodes=[], links=[])
+
+    d = rev.index[0]
+    revenue = abs(_safe_float(rev.get(d)) or 0)
+    cogs_val = abs(_safe_float(cogs.get(d)) or 0) if cogs is not None and d in cogs.index else 0
+    gross_val = _safe_float(gross.get(d)) if gross is not None and d in gross.index else None
+    if gross_val is None:
+        gross_val = (revenue - cogs_val) if revenue else 0
+    gross_val = abs(gross_val or 0)
+    operating_income = _safe_float(op_inc.get(d)) if op_inc is not None and d in op_inc.index else 0
+    net_income = _safe_float(ni.get(d)) if ni is not None and d in ni.index else 0
+    opex = max(0, gross_val - operating_income) if gross_val >= operating_income else 0
+    tax_interest_other = max(0, operating_income - net_income) if (operating_income - net_income) > 0 else abs(min(0, operating_income - net_income))
 
     nodes = [
         SankeyNivoNode(id="revenue", label="Revenue"),
@@ -216,18 +286,25 @@ def _build_sankey_nivo(ticker: str) -> SankeyGraphPayload:
         SankeyNivoNode(id="tax_other", label="Tax & other"),
         SankeyNivoNode(id="net_income", label="Net income"),
     ]
+    revenue_safe = max(revenue, 1)
+    gross_safe = max(gross_val, revenue_safe - min(cogs_val, revenue_safe * 0.999))
     links: List[SankeyNivoLink] = [
-        SankeyNivoLink(source="revenue", target="cogs", value=float(cogs)),
-        SankeyNivoLink(source="revenue", target="gross_profit", value=float(max(gp, rev - cogs))),
+        SankeyNivoLink(source="revenue", target="cogs", value=float(min(cogs_val, revenue_safe * 0.999))),
+        SankeyNivoLink(source="revenue", target="gross_profit", value=float(max(gross_safe, revenue_safe - cogs_val))),
     ]
     gp_v = links[-1].value
     links.append(SankeyNivoLink(source="gross_profit", target="opex", value=float(min(opex, gp_v))))
-    links.append(SankeyNivoLink(source="gross_profit", target="operating_income", value=float(max(oi, gp_v - opex))))
+    links.append(SankeyNivoLink(source="gross_profit", target="operating_income", value=float(max(operating_income, gp_v - opex))))
     oi_v = links[-1].value
-    tax_v = min(tax, max(oi_v, 0))
+    tax_v = min(tax_interest_other, max(oi_v, 0))
     links.append(SankeyNivoLink(source="operating_income", target="tax_other", value=float(tax_v)))
-    links.append(SankeyNivoLink(source="operating_income", target="net_income", value=float(max(abs(ni), 0))))
+    links.append(SankeyNivoLink(source="operating_income", target="net_income", value=float(max(abs(net_income), 0))))
     return SankeyGraphPayload(nodes=nodes, links=links)
+
+
+def _build_sankey_nivo(ticker: str) -> SankeyGraphPayload:
+    fin, _, _ = _get_annual_financials_balance_cashflow(ticker)
+    return _build_sankey_nivo_from_fin(fin)
 
 
 def _build_waterfall(fin: pd.DataFrame) -> List[WaterfallStep]:
@@ -352,8 +429,27 @@ def sankey_nivo_for_ticker(ticker: str) -> Dict[str, Any]:
     return _build_sankey_nivo(ticker).model_dump()
 
 
-def build_research_dashboard(ticker: str) -> ResearchDashboardResponse:
-    sym = ticker.upper().strip()
+def _get_cached_dashboard(sym: str) -> Optional[ResearchDashboardResponse]:
+    now = time.time()
+    with _dashboard_cache_lock:
+        cached = _dashboard_cache.get(sym)
+        if not cached:
+            return None
+        ts, payload = cached
+        if now - ts >= _DASHBOARD_CACHE_TTL_SECONDS:
+            _dashboard_cache.pop(sym, None)
+            return None
+        return payload.model_copy(deep=True)
+
+
+def _store_cached_dashboard(sym: str, payload: ResearchDashboardResponse) -> None:
+    if payload.error:
+        return
+    with _dashboard_cache_lock:
+        _dashboard_cache[sym] = (time.time(), payload.model_copy(deep=True))
+
+
+def _build_research_dashboard_uncached(sym: str) -> ResearchDashboardResponse:
     fin, bal, cf = _get_annual_financials_balance_cashflow(sym)
     if fin is None or fin.empty or bal is None or bal.empty:
         return ResearchDashboardResponse(ticker=sym, error="Insufficient financial statements")
@@ -362,11 +458,8 @@ def build_research_dashboard(ticker: str) -> ResearchDashboardResponse:
         cf = pd.DataFrame()
 
     total, fseries = _build_fscore_series(sym, fin, bal, cf)
-    dq = get_dupont_altman_redflags_yoy(sym)
-    dupont_df = dq.get("dupont") if dq else None
-    tree = _dupont_tree_from_df(dupont_df) if isinstance(dupont_df, pd.DataFrame) else None
-
-    sankey = _build_sankey_nivo(sym)
+    tree = _build_dupont_tree_from_statements(fin, bal)
+    sankey = _build_sankey_nivo_from_fin(fin)
     waterfall = _build_waterfall(fin)
     anomalies = _detect_anomalies(fin, bal)
 
@@ -379,3 +472,40 @@ def build_research_dashboard(ticker: str) -> ResearchDashboardResponse:
         waterfall=waterfall,
         anomalies=anomalies,
     )
+
+
+def build_research_dashboard(ticker: str) -> ResearchDashboardResponse:
+    sym = ticker.upper().strip()
+    cached = _get_cached_dashboard(sym)
+    if cached is not None:
+        return cached
+
+    wait_event: Optional[threading.Event] = None
+    with _dashboard_cache_lock:
+        cached = _get_cached_dashboard(sym)
+        if cached is not None:
+            return cached
+        wait_event = _dashboard_inflight.get(sym)
+        if wait_event is None:
+            wait_event = threading.Event()
+            _dashboard_inflight[sym] = wait_event
+            leader = True
+        else:
+            leader = False
+
+    if not leader:
+        wait_event.wait(timeout=15)
+        cached = _get_cached_dashboard(sym)
+        if cached is not None:
+            return cached
+        return _build_research_dashboard_uncached(sym)
+
+    try:
+        payload = _build_research_dashboard_uncached(sym)
+        _store_cached_dashboard(sym, payload)
+        return payload.model_copy(deep=True)
+    finally:
+        with _dashboard_cache_lock:
+            event = _dashboard_inflight.pop(sym, None)
+            if event is not None:
+                event.set()

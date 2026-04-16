@@ -6,6 +6,7 @@ import uuid
 from pathlib import Path
 from typing import List
 
+import logging
 from fastapi import APIRouter, HTTPException, UploadFile, File, Header
 from pydantic import BaseModel, Field
 
@@ -16,6 +17,7 @@ from server.models.schemas import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 # Simple file-based persistence (production would use Supabase / Postgres)
 _PORTFOLIO_FILE = Path(__file__).resolve().parent.parent.parent / "data" / "portfolio.json"
@@ -41,6 +43,7 @@ def _load_positions() -> List[dict]:
         with open(_PORTFOLIO_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
     except Exception:
+        logger.exception("portfolio endpoint failed")
         return []
 
 

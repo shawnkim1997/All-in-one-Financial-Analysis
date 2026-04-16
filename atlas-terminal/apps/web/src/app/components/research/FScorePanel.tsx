@@ -1,5 +1,6 @@
 "use client";
 
+import { chartPalette } from "../../lib/chart-theme";
 import type { FScoreCriterionSeries } from "./types";
 
 function BinarySparkline({ history }: { history: { year: number; pass_flag: boolean }[] }) {
@@ -19,14 +20,14 @@ function BinarySparkline({ history }: { history: { year: number; pass_flag: bool
 
   return (
     <svg viewBox={`0 0 ${w} ${h}`} className="w-20 h-5 shrink-0" aria-hidden>
-      <path d={lineD} fill="none" stroke="#6B7280" strokeWidth="1.2" strokeLinecap="round" />
+      <path d={lineD} fill="none" stroke={chartPalette.neutral} strokeWidth="1.2" strokeLinecap="round" />
       {pts.map((p) => (
         <circle
           key={p.pt.year}
           cx={p.x}
           cy={p.y}
           r={3}
-          fill={p.pt.pass_flag ? "#00D4AA" : "#F87171"}
+          fill={p.pt.pass_flag ? chartPalette.green : chartPalette.red}
         />
       ))}
     </svg>

@@ -1,11 +1,13 @@
 """Market Data router -- sector info, financial trends, comps, health metrics."""
 
+import logging
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, Query
 from server.utils.ticker_utils import AssetType, detect_asset_type
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _safe_float(val, default=0.0):
@@ -45,10 +47,12 @@ async def market_indices():
                     "change": f"{pct:+.2f}%",
                     "positive": pct >= 0,
                 })
-            except Exception:
+            except Exception as exc:
+                logger.warning("indices: fetch %s failed: %s", s["symbol"], exc)
                 results.append({"label": s["label"], "symbol": s["symbol"], "price": "—", "change": "—", "positive": True})
         return results
     except Exception:
+        logger.exception("indices: outer failure")
         return []
 
 
@@ -59,6 +63,7 @@ async def market_overview():
 
         return await get_market_overview()
     except Exception as e:
+        logger.exception("market_overview failed")
         return {"error": str(e), "data": None}
 
 
@@ -69,6 +74,7 @@ async def sector_heatmap():
 
         return await get_sector_heatmap()
     except Exception as e:
+        logger.exception("sector_heatmap failed")
         return {"error": str(e), "data": None}
 
 
@@ -93,6 +99,7 @@ async def market_overview_by_ticker(ticker: str):
 
         return {"asset_type": AssetType.EQUITY.value, "data": await get_equity_overview(ticker)}
     except Exception as e:
+        logger.exception("overview/%s failed", ticker)
         return {"error": str(e), "asset_type": AssetType.EQUITY.value, "data": None}
 
 
@@ -103,6 +110,7 @@ async def etf_holdings(ticker: str):
 
         return {"ticker": ticker.upper(), "holdings": await get_etf_holdings(ticker)}
     except Exception as e:
+        logger.exception("etf/%s/holdings failed", ticker)
         return {"error": str(e), "ticker": ticker.upper(), "holdings": []}
 
 
@@ -114,6 +122,7 @@ async def commodity_seasonal(ticker: str):
         data = await get_commodity_overview(ticker)
         return {"ticker": ticker.upper(), "seasonal_pattern": data.get("seasonal_pattern", {})}
     except Exception as e:
+        logger.exception("commodity/%s/seasonal failed", ticker)
         return {"error": str(e), "ticker": ticker.upper(), "seasonal_pattern": {}}
 
 
@@ -124,6 +133,7 @@ async def commodity_correlations(ticker: str):
 
         return {"ticker": ticker.upper(), "correlations": await compute_commodity_correlations(ticker)}
     except Exception as e:
+        logger.exception("commodity/%s/correlations failed", ticker)
         return {"error": str(e), "ticker": ticker.upper(), "correlations": {}}
 
 
@@ -164,8 +174,11 @@ async def sector_industry(ticker: str):
             "website": info.get("website"),
             "ipo_date": info.get("ipoExpectedDate") or info.get("firstTradeDateEpochUtc"),
             "description": info.get("longBusinessSummary"),
+            "currency": info.get("currency") or info.get("financialCurrency") or "USD",
+            "exchange": info.get("exchange"),
         }
     except Exception:
+        logger.exception("sector/%s failed", ticker)
         return {"sector": "N/A", "industry": "N/A"}
 
 
@@ -201,6 +214,7 @@ async def financial_trend(ticker: str):
 
         return {"years": years, "revenue": revenue, "net_income": net_income, "operating_margin": op_margin, "fcf": fcf_list}
     except Exception:
+        logger.exception("trend/%s failed", ticker)
         return {"years": [], "revenue": [], "net_income": [], "operating_margin": [], "fcf": []}
 
 
@@ -212,6 +226,7 @@ async def peer_valuation_multiples(ticker: str):
 
         return build_peer_comparison(ticker)
     except Exception:
+        logger.exception("peers/%s failed", ticker)
         return {
             "ticker": ticker.upper(),
             "sector": "—",
@@ -243,6 +258,7 @@ async def industry_comps(tickers: str = Query(..., description="Comma-separated 
             })
         return {"tickers": ticker_list, "data": results}
     except Exception:
+        logger.exception("comps failed for %s", tickers)
         return {"tickers": [], "data": []}
 
 
@@ -376,7 +392,8 @@ async def financial_health(ticker: str):
             "debt_to_equity": round(debt_to_equity, 2) if debt_to_equity is not None else None,
             "red_flags": red_flags,
         }
-    except Exception as e:
+    except Exception:
+        logger.exception("health/%s failed", ticker)
         return fallback
 
 
@@ -455,6 +472,7 @@ async def piotroski_score(ticker: str):
 
         return {"total": score, "details": details, "score": score}
     except Exception:
+        logger.exception("piotroski/%s failed", ticker)
         return {"total": 0, "details": {}, "score": 0}
 
 
@@ -477,6 +495,7 @@ async def quick_quote(ticker: str):
             "change_pct": round(ch, 2) if ch is not None else None,
         }
     except Exception:
+        logger.exception("quote/%s failed", ticker)
         return {"ticker": ticker.upper(), "current_price": None, "change_pct": None}
 
 
@@ -512,9 +531,11 @@ async def sankey_data(ticker: str):
 
             nivo = sankey_nivo_for_ticker(ticker)
         except Exception:
+            logger.warning("sankey/%s nivo fallback used", ticker)
             nivo = {"nodes": [], "links": []}
         return {"nodes": nodes, "nivo": nivo}
     except Exception:
+        logger.exception("sankey/%s failed", ticker)
         return {"nodes": [], "nivo": {"nodes": [], "links": []}}
 
 
@@ -533,4 +554,5 @@ async def radar_metrics(ticker: str):
             "revenue_growth": _safe_float(info.get("revenueGrowth", 0)) * 100,
         }
     except Exception:
+        logger.exception("radar/%s failed", ticker)
         return {}

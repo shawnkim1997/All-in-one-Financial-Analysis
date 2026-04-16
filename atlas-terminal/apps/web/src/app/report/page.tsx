@@ -1,20 +1,14 @@
 "use client";
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { useCallback, useState } from "react";
+import { BarChart3, Info } from "lucide-react";
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Cell, Legend, ReferenceLine,
 } from "recharts";
 import { useTicker } from "../lib/use-ticker";
-
-/* ═══════════════════════════════════════════════════════════════════
-   Design Tokens — "Morgan Stanley Blue"
-   ═══════════════════════════════════════════════════════════════════ */
-const C = {
-  navy: "#1B2A4A", blue: "#2E5B9A", gold: "#C4A35A",
-  green: "#2D8B5E", red: "#C0392B", gray: "#6B7B8D",
-  lightGray: "#E8ECF0", bg: "#FFFFFF", text: "#1A1A2E", muted: "#6B7B8D",
-};
+import { C } from "./design-tokens";
 
 /* ═══════════════════════════════════════════════════════════════════
    Types
@@ -68,20 +62,31 @@ interface RelativeValData {
 /* ═══════════════════════════════════════════════════════════════════
    Utility
    ═══════════════════════════════════════════════════════════════════ */
-function fmtB(v: number | null | undefined): string {
+const CURRENCY_META: Record<string, { sym: string; dec: number }> = {
+  USD: { sym: "$",   dec: 2 }, KRW: { sym: "₩",   dec: 0 },
+  JPY: { sym: "¥",   dec: 0 }, CNY: { sym: "¥",   dec: 2 },
+  HKD: { sym: "HK$", dec: 2 }, EUR: { sym: "€",   dec: 2 },
+  GBP: { sym: "£",   dec: 2 }, INR: { sym: "₹",   dec: 0 },
+  TWD: { sym: "NT$", dec: 0 }, SGD: { sym: "S$",  dec: 2 },
+  CAD: { sym: "C$",  dec: 2 }, AUD: { sym: "A$",  dec: 2 },
+};
+function curSym(c?: string | null) { return CURRENCY_META[(c ?? "USD").toUpperCase()]?.sym ?? "$"; }
+function fmtB(v: number | null | undefined, c?: string | null): string {
   if (v == null || isNaN(v)) return "N/A";
-  if (Math.abs(v) >= 1e12) return `$${(v / 1e12).toFixed(1)}T`;
-  if (Math.abs(v) >= 1e9) return `$${(v / 1e9).toFixed(1)}B`;
-  if (Math.abs(v) >= 1e6) return `$${(v / 1e6).toFixed(0)}M`;
-  return `$${v.toFixed(0)}`;
+  const s = curSym(c);
+  if (Math.abs(v) >= 1e12) return `${s}${(v / 1e12).toFixed(1)}T`;
+  if (Math.abs(v) >= 1e9)  return `${s}${(v / 1e9).toFixed(1)}B`;
+  if (Math.abs(v) >= 1e6)  return `${s}${(v / 1e6).toFixed(0)}M`;
+  return `${s}${v.toFixed(0)}`;
 }
 function fmtPct(v: number | null | undefined): string {
   if (v == null || isNaN(v)) return "N/A";
   return `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
 }
-function fmtPrice(v: number | null | undefined): string {
+function fmtPrice(v: number | null | undefined, c?: string | null): string {
   if (v == null || isNaN(v)) return "N/A";
-  return `$${v.toFixed(2)}`;
+  const meta = CURRENCY_META[(c ?? "USD").toUpperCase()] ?? { sym: curSym(c), dec: 2 };
+  return `${meta.sym}${v.toLocaleString("en-US", { minimumFractionDigits: meta.dec, maximumFractionDigits: meta.dec })}`;
 }
 function getValue(data: Record<string, any>, key: string): number | null {
   for (const k of key.split("|")) { const v = data[k.trim()]; if (v != null && typeof v === "number" && !isNaN(v)) return v; }
@@ -93,6 +98,28 @@ async function fetchJson(url: string, opts?: RequestInit) {
 function renderMarkdown(text: string) {
   return text.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>").replace(/\n- /g, "<br/>&bull; ").replace(/\n\* /g, "<br/>&bull; ").replace(/\n/g, "<br/>");
 }
+function normalizeAiNotice(message?: string | null): string {
+  const text = (message || "").trim();
+  if (!text) {
+    return "AI analysis could not be generated. The quantitative report was generated successfully.";
+  }
+  if (text.includes("Gemini API 키가 없어")) {
+    return "Gemini API key is missing. Add your key in Settings to enable the Wall Street 10 analysis.";
+  }
+  if (text.includes("AI 분석 호출에 실패했습니다")) {
+    return "AI analysis could not be generated. The quantitative report was generated successfully.";
+  }
+  if (text.includes("Gemini API timeout")) {
+    return "Gemini timed out while generating the AI section. The quantitative report was generated successfully.";
+  }
+  if (text.includes("Gemini API error")) {
+    return "Gemini returned an API error. The quantitative report was generated successfully.";
+  }
+  if (text.includes("Gemini request failed")) {
+    return "Gemini request failed. The quantitative report was generated successfully.";
+  }
+  return text;
+}
 
 /* ═══════════════════════════════════════════════════════════════════
    SECTION COMPONENTS
@@ -101,11 +128,14 @@ function renderMarkdown(text: string) {
 function CoverPage({ ticker, info, consensus, dcf, relativeVal }: { ticker: string; info: Record<string, any>; consensus: ConsensusData | null; dcf: DCFResult | null; relativeVal: RelativeValData | null }) {
   const now = new Date();
   const dateStr = now.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+  const cur: string = info.currency || "USD";
   const price = info.currentPrice || info.regularMarketPrice || 0;
   const target = consensus?.target_mean ?? info.targetMeanPrice ?? 0;
   const upside = price > 0 && target > 0 ? ((target - price) / price) * 100 : 0;
   const rec = consensus?.recommendation?.toUpperCase() || "N/A";
-  const recColor = rec.includes("BUY") || rec.includes("STRONG") ? C.green : rec.includes("SELL") ? C.red : C.gold;
+  // NONE / null / missing consensus → show "N/A" rather than "NONE"
+  const recDisplay = !rec || rec === "NONE" || rec === "N/A" ? "N/A" : rec;
+  const recColor = recDisplay.includes("BUY") || recDisplay.includes("STRONG") ? C.green : recDisplay.includes("SELL") ? C.red : C.gold;
 
   return (
     <div className="report-page cover-page flex flex-col items-center justify-center text-center">
@@ -121,11 +151,11 @@ function CoverPage({ ticker, info, consensus, dcf, relativeVal }: { ticker: stri
       {/* Rating Badge */}
       <div className="inline-flex items-center gap-3 px-6 py-3 rounded-lg mb-8" style={{ background: "#F4F6F9", border: `2px solid ${recColor}` }}>
         <div className="text-xs uppercase tracking-wider" style={{ color: C.muted }}>Consensus</div>
-        <div className="text-2xl font-bold font-mono" style={{ color: recColor }}>{rec}</div>
+        <div className="text-2xl font-bold font-mono" style={{ color: recColor }}>{recDisplay}</div>
         <div className="w-px h-8" style={{ background: C.lightGray }} />
         <div className="text-right">
           <div className="text-xs" style={{ color: C.muted }}>Target</div>
-          <div className="font-mono font-bold" style={{ color: C.navy }}>{fmtPrice(target)}</div>
+          <div className="font-mono font-bold" style={{ color: C.navy }}>{fmtPrice(target, cur)}</div>
         </div>
         <div className="text-right">
           <div className="text-xs" style={{ color: C.muted }}>Upside</div>
@@ -135,9 +165,9 @@ function CoverPage({ ticker, info, consensus, dcf, relativeVal }: { ticker: stri
 
       <div className="grid grid-cols-4 gap-6 mb-8" style={{ maxWidth: 640 }}>
         {[
-          { label: "Price", value: fmtPrice(price) },
-          { label: "Market Cap", value: fmtB(info.marketCap) },
-          { label: relativeVal ? `${relativeVal.method} Fair Value` : "DCF Fair Value", value: relativeVal ? fmtPrice(relativeVal.base.value) : dcf?.base != null ? fmtPrice(dcf.base) : "N/A" },
+          { label: "Price", value: fmtPrice(price, cur) },
+          { label: "Market Cap", value: fmtB(info.marketCap, cur) },
+          { label: relativeVal ? `${relativeVal.method} Fair Value` : "DCF Fair Value", value: relativeVal ? fmtPrice(relativeVal.base.value, cur) : dcf?.base != null ? fmtPrice(dcf.base, cur) : "N/A" },
           { label: "Analysts", value: consensus ? `${consensus.num_analysts}` : "N/A" },
         ].map((k) => (
           <div key={k.label}>
@@ -191,10 +221,11 @@ function TableOfContents({ hasInstitutional }: { hasInstitutional: boolean }) {
 }
 
 function KpiRow({ info }: { info: Record<string, any> }) {
+  const cur: string = info.currency || "USD";
   const kpis = [
-    { label: "Revenue", value: fmtB(info.totalRevenue), sub: fmtPct((info.revenueGrowth || 0) * 100) },
-    { label: "Net Income", value: fmtB(info.netIncomeToCommon), sub: `Margin ${((info.profitMargins || 0) * 100).toFixed(1)}%` },
-    { label: "Free Cash Flow", value: fmtB(info.freeCashflow), sub: `Yield ${info.freeCashflow && info.marketCap ? ((info.freeCashflow / info.marketCap) * 100).toFixed(1) : "N/A"}%` },
+    { label: "Revenue", value: fmtB(info.totalRevenue, cur), sub: fmtPct((info.revenueGrowth || 0) * 100) },
+    { label: "Net Income", value: fmtB(info.netIncomeToCommon, cur), sub: `Margin ${((info.profitMargins || 0) * 100).toFixed(1)}%` },
+    { label: "Free Cash Flow", value: fmtB(info.freeCashflow, cur), sub: `Yield ${info.freeCashflow && info.marketCap ? ((info.freeCashflow / info.marketCap) * 100).toFixed(1) : "N/A"}%` },
     { label: "ROE", value: `${((info.returnOnEquity || 0) * 100).toFixed(1)}%`, sub: `ROA ${((info.returnOnAssets || 0) * 100).toFixed(1)}%` },
     { label: "P/E (TTM)", value: info.trailingPE ? `${info.trailingPE.toFixed(1)}x` : "N/A", sub: `Fwd ${info.forwardPE ? info.forwardPE.toFixed(1) + "x" : "N/A"}` },
     { label: "EV/EBITDA", value: info.enterpriseToEbitda ? `${info.enterpriseToEbitda.toFixed(1)}x` : "N/A", sub: `D/E ${info.debtToEquity ?? "N/A"}` },
@@ -215,12 +246,13 @@ function KpiRow({ info }: { info: Record<string, any> }) {
 function CompanyProfile({ info }: { info: Record<string, any> }) {
   const desc = info.longBusinessSummary || info.description || "";
   if (!desc) return null;
+  const cur: string = info.currency || "USD";
   const stats = [
-    { l: "Employees", v: info.fullTimeEmployees?.toLocaleString() || "N/A" },
-    { l: "Country", v: info.country || "N/A" },
-    { l: "Founded", v: info.companyOfficers?.[0]?.fiscalYear || "N/A" },
-    { l: "52W High", v: fmtPrice(info.fiftyTwoWeekHigh) },
-    { l: "52W Low", v: fmtPrice(info.fiftyTwoWeekLow) },
+    { l: "Employees", v: info.fullTimeEmployees ? Number(info.fullTimeEmployees).toLocaleString() : "—" },
+    { l: "Country", v: info.country || "—" },
+    { l: "Exchange", v: info.exchange || "—" },
+    { l: "52W High", v: fmtPrice(info.fiftyTwoWeekHigh, cur) },
+    { l: "52W Low", v: fmtPrice(info.fiftyTwoWeekLow, cur) },
     { l: "Beta", v: info.beta ? info.beta.toFixed(2) : "N/A" },
     { l: "Avg Volume", v: info.averageVolume ? `${(info.averageVolume / 1e6).toFixed(1)}M` : "N/A" },
     { l: "Dividend Yield", v: info.dividendYield ? `${(info.dividendYield * 100).toFixed(2)}%` : "N/A" },
@@ -285,7 +317,7 @@ function FinancialCharts({ statements }: { statements: { income_statement?: Fina
               <CartesianGrid strokeDasharray="3 3" stroke="#E0E0E0" />
               <XAxis dataKey="year" tick={{ fontSize: 10 }} />
               <YAxis tick={{ fontSize: 10 }} />
-              <Tooltip />
+              <Tooltip formatter={(value: number | string) => `${Number(value).toFixed(1)}%`} />
               <Line type="monotone" dataKey="grossMargin" stroke={C.green} name="Gross" strokeWidth={2} dot={{ r: 3 }} />
               <Line type="monotone" dataKey="opMargin" stroke={C.blue} name="Operating" strokeWidth={2} dot={{ r: 3 }} />
               <Line type="monotone" dataKey="netMargin" stroke={C.gold} name="Net" strokeWidth={2} dot={{ r: 3 }} />
@@ -1102,9 +1134,10 @@ export default function ReportPage() {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState("");
   const [error, setError] = useState("");
+  const [aiNotice, setAiNotice] = useState("");
 
   const generateReport = useCallback(async () => {
-    setLoading(true); setError(""); setProgress("Phase 1/4 — Gathering market data (9 parallel requests)...");
+    setLoading(true); setError(""); setAiNotice(""); setProgress("Phase 1/4 — Gathering market data (9 parallel requests)...");
     const apiKey = localStorage.getItem("atlas_gemini_key") || "";
 
     try {
@@ -1130,27 +1163,48 @@ export default function ReportPage() {
       const mergedInfo: Record<string, any> = {};
       if (ov?.data) Object.assign(mergedInfo, {
         longName: ov.data.name, sector: ov.data.sector, industry: ov.data.industry,
-        marketCap: ov.data.market_cap, trailingPE: ov.data.pe_ratio,
+        marketCap: ov.data.market_cap,
+        trailingPE: ov.data.trailing_pe ?? ov.data.pe_ratio,
         dividendYield: ov.data.dividend_yield ? ov.data.dividend_yield / 100 : 0,
         beta: ov.data.beta, fiftyTwoWeekHigh: ov.data.high_52w, fiftyTwoWeekLow: ov.data.low_52w,
         currentPrice: ov.data.price, longBusinessSummary: ov.data.description,
+        currency: ov.data.currency,
+        exchange: ov.data.exchange, country: ov.data.country,
+        fullTimeEmployees: ov.data.full_time_employees,
+        averageVolume: ov.data.average_volume,
+        forwardPE: ov.data.forward_pe,
+        enterpriseToEbitda: ov.data.enterprise_to_ebitda,
+        debtToEquity: ov.data.debt_to_equity,
+        returnOnEquity: ov.data.return_on_equity,
+        returnOnAssets: ov.data.return_on_assets,
+        freeCashflow: ov.data.free_cashflow,
+        revenueGrowth: ov.data.revenue_growth,
+        profitMargins: ov.data.profit_margins,
+        targetMeanPrice: ov.data.target_mean_price,
       });
       if (sec) Object.assign(mergedInfo, {
         sector: sec.sector || mergedInfo.sector, industry: sec.industry || mergedInfo.industry,
         marketCap: sec.market_cap || mergedInfo.marketCap, trailingPE: sec.pe_ratio || mergedInfo.trailingPE,
-        forwardPE: sec.forward_pe, currentPrice: sec.current_price || mergedInfo.currentPrice,
-        targetMeanPrice: sec.target_mean_price, fiftyTwoWeekHigh: sec.fifty_two_week_high || mergedInfo.fiftyTwoWeekHigh,
+        forwardPE: sec.forward_pe || mergedInfo.forwardPE,
+        currentPrice: sec.current_price || mergedInfo.currentPrice,
+        targetMeanPrice: sec.target_mean_price || mergedInfo.targetMeanPrice,
+        fiftyTwoWeekHigh: sec.fifty_two_week_high || mergedInfo.fiftyTwoWeekHigh,
         fiftyTwoWeekLow: sec.fifty_two_week_low || mergedInfo.fiftyTwoWeekLow,
-        fullTimeEmployees: sec.employees, exchange: sec.exchange,
-        debtToEquity: sec.debt_to_equity,
+        fullTimeEmployees: sec.employees || mergedInfo.fullTimeEmployees,
+        exchange: sec.exchange || mergedInfo.exchange,
+        debtToEquity: sec.debt_to_equity || mergedInfo.debtToEquity,
+        currency: sec.currency || mergedInfo.currency || "USD",
       });
       if (hi) Object.assign(mergedInfo, {
-        totalRevenue: hi.revenue, profitMargins: hi.profit_margin,
-        returnOnEquity: hi.roe, returnOnAssets: hi.roa, freeCashflow: hi.free_cash_flow,
+        totalRevenue: hi.revenue, profitMargins: hi.profit_margin ?? mergedInfo.profitMargins,
+        returnOnEquity: hi.roe ?? mergedInfo.returnOnEquity,
+        returnOnAssets: hi.roa ?? mergedInfo.returnOnAssets,
+        freeCashflow: hi.free_cash_flow ?? mergedInfo.freeCashflow,
         netIncomeToCommon: hi.revenue && hi.profit_margin ? hi.revenue * hi.profit_margin : undefined,
-        enterpriseToEbitda: hi.ebitda && hi.revenue ? undefined : undefined,
-        revenueGrowth: hi.revenue_growth, debtToEquity: hi.debt_to_equity ?? mergedInfo.debtToEquity,
+        revenueGrowth: hi.revenue_growth ?? mergedInfo.revenueGrowth,
+        debtToEquity: hi.debt_to_equity ?? mergedInfo.debtToEquity,
         operatingMargins: hi.operating_margin, grossMargins: hi.gross_margin,
+        currency: hi.currency || mergedInfo.currency || "USD",
       });
       if (Object.keys(mergedInfo).length > 0) setInfo(mergedInfo);
 
@@ -1226,7 +1280,7 @@ export default function ReportPage() {
 
       /* ── Phase 4: Gemini AI ── */
       if (!apiKey) {
-        setError("Quantitative report generated (20+ sections). Add Gemini API key in Settings for Wall Street 10 AI analysis.");
+        setAiNotice(normalizeAiNotice("Gemini API key is missing. Add your key in Settings to enable the Wall Street 10 analysis."));
       } else {
         setProgress("Phase 4/4 — Generating Wall Street 10 analysis (Gemini AI, ~15s)...");
         const instRes = await fetch("/api/analysis/institutional", {
@@ -1234,7 +1288,10 @@ export default function ReportPage() {
           body: JSON.stringify({ ticker, api_key: apiKey }),
         });
         if (instRes.ok) { setInstitutional(await instRes.json()); }
-        else { const err = await instRes.json().catch(() => ({})); setError(err.detail || "AI analysis failed. Quantitative data available below."); }
+        else {
+          const err = await instRes.json().catch(() => ({}));
+          setAiNotice(normalizeAiNotice(err.detail || "AI analysis could not be generated. The quantitative report was generated successfully."));
+        }
       }
 
       setProgress("");
@@ -1274,6 +1331,12 @@ export default function ReportPage() {
         </div>
 
         {error && <div className="bg-accent-red/10 border border-accent-red/30 rounded-md px-4 py-3 text-accent-red text-sm mb-4">{error}</div>}
+        {!error && aiNotice && (
+          <div className="mb-4 flex items-start gap-2 rounded-md border border-accent-yellow/30 bg-accent-yellow/10 px-4 py-3 text-sm text-accent-yellow">
+            <Info className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>{aiNotice}</span>
+          </div>
+        )}
 
         {loading && (
           <div className="bg-bg-card border border-border rounded-lg p-8 text-center">
@@ -1286,7 +1349,9 @@ export default function ReportPage() {
 
         {!hasData && !loading && (
           <div className="bg-bg-card border border-border rounded-lg p-8 text-center">
-            <div className="text-5xl mb-4">📊</div>
+            <div className="mb-4 flex justify-center text-brand-navy">
+              <BarChart3 className="h-12 w-12" />
+            </div>
             <h2 className="text-text-primary text-lg font-semibold mb-2">Wall Street 10 Institutional Report</h2>
             <p className="text-text-muted text-sm max-w-lg mx-auto mb-4">
               Generate a comprehensive 20+ page equity research report featuring DCF valuation (3 scenarios),

@@ -8,6 +8,7 @@ import os
 import re
 from typing import Any, Dict, List
 
+import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
@@ -32,39 +33,58 @@ class SimpleQuestionRequest(BaseModel):
     api_key: str = ""
 
 
-def _call_gemini(
+async def _call_gemini(
     api_key: str,
     prompt: str,
     max_tokens: int = 4096,
     temperature: float = 0.7,
 ) -> str:
-    """Call Gemini API directly and return text response."""
-    import urllib.request
-    import urllib.error
-
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
-
-    payload = json.dumps({
+    """Call Gemini API directly (non-blocking) and return text response."""
+    url = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        f"gemini-2.0-flash:generateContent?key={api_key}"
+    )
+    payload = {
         "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"maxOutputTokens": max_tokens, "temperature": temperature},
-    }).encode("utf-8")
+        "generationConfig": {
+            "maxOutputTokens": max_tokens,
+            "temperature": temperature,
+        },
+    }
 
-    req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
     try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            candidates = data.get("candidates", [])
-            if candidates:
-                parts = candidates[0].get("content", {}).get("parts", [])
-                if parts:
-                    return parts[0].get("text", "")
-            return "No response from Gemini."
-    except urllib.error.HTTPError as e:
-        body = e.read().decode("utf-8", errors="replace")
-        logger.error("Gemini API error %d: %s", e.code, body)
-        raise HTTPException(status_code=e.code, detail=f"Gemini API error: {body[:200]}")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Gemini call failed: {e}")
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.post(
+                url,
+                json=payload,
+                headers={"Content-Type": "application/json"},
+            )
+    except httpx.TimeoutException as exc:
+        logger.warning("Gemini API timeout: %s", exc)
+        raise HTTPException(status_code=504, detail="Gemini API timeout") from exc
+    except httpx.HTTPError as exc:
+        logger.exception("Gemini API request error")
+        raise HTTPException(status_code=502, detail=f"Gemini request failed: {exc}") from exc
+
+    if resp.status_code >= 400:
+        body = resp.text[:200]
+        logger.error("Gemini API error %d: %s", resp.status_code, body)
+        raise HTTPException(
+            status_code=resp.status_code, detail=f"Gemini API error: {body}"
+        )
+
+    try:
+        data = resp.json()
+    except ValueError as exc:
+        logger.exception("Gemini response JSON decode failed")
+        raise HTTPException(status_code=502, detail="Gemini response not JSON") from exc
+
+    candidates = data.get("candidates", [])
+    if candidates:
+        parts = candidates[0].get("content", {}).get("parts", [])
+        if parts:
+            return parts[0].get("text", "")
+    return "No response from Gemini."
 
 
 def _build_anomaly_filing_context(
@@ -197,7 +217,7 @@ Provide a detailed, professional analysis in markdown format. Include:
 
 Be specific with numbers and data. Answer in the same language as the question."""
 
-    result = _call_gemini(api_key, prompt)
+    result = await _call_gemini(api_key, prompt)
     return {"ticker": req.ticker.upper(), "analysis": result}
 
 
@@ -223,7 +243,7 @@ Provide a detailed risk assessment including:
 
 Be specific and use the financial data provided. Answer in markdown format."""
 
-    result = _call_gemini(api_key, prompt)
+    result = await _call_gemini(api_key, prompt)
     return {"ticker": req.ticker.upper(), "analysis": result}
 
 
@@ -249,7 +269,7 @@ Provide insights on:
 
 Use markdown format with headers and bullet points."""
 
-    result = _call_gemini(api_key, prompt)
+    result = await _call_gemini(api_key, prompt)
     return {"ticker": req.ticker.upper(), "report": result}
 
 
@@ -276,7 +296,7 @@ Check for:
 
 Use markdown format. Be thorough but fair."""
 
-    result = _call_gemini(api_key, prompt)
+    result = await _call_gemini(api_key, prompt)
     return {"ticker": req.ticker.upper(), "forensic": result}
 
 
@@ -288,7 +308,7 @@ async def extract_financials(req: AnalysisRequest):
         raise HTTPException(status_code=400, detail="API key required.")
 
     context = _get_financial_context(req.ticker.upper())
-    result = _call_gemini(api_key, f"Summarize the key financial data for analysis:\n\n{context}")
+    result = await _call_gemini(api_key, f"Summarize the key financial data for analysis:\n\n{context}")
     return {"ticker": req.ticker.upper(), "financials": result}
 
 
@@ -360,7 +380,7 @@ Output rules:
 
     raw = ""
     try:
-        raw = _call_gemini(api_key, prompt, max_tokens=2048, temperature=0.2)
+        raw = await _call_gemini(api_key, prompt, max_tokens=2048, temperature=0.2)
         parsed = _parse_llm_json_object(raw)
         return _anomaly_response_from_parsed(parsed)
     except json.JSONDecodeError:
@@ -420,7 +440,7 @@ async def translate_text(req: TranslateRequest):
     )
 
     try:
-        result = _call_gemini(api_key, prompt, max_tokens=8192, temperature=0.2)
+        result = await _call_gemini(api_key, prompt, max_tokens=8192, temperature=0.2)
         return {"translated_text": result}
     except Exception as exc:
         logger.exception("Translation failed")
@@ -485,7 +505,7 @@ async def institutional_analysis(req: InstitutionalRequest):
         prompt += "\n\nIMPORTANT: Write the entire analysis in Japanese (日本語). Keep financial terms in English."
 
     try:
-        raw = _call_gemini(api_key, prompt, max_tokens=8192, temperature=0.3)
+        raw = await _call_gemini(api_key, prompt, max_tokens=8192, temperature=0.3)
     except HTTPException:
         raise
     except Exception as exc:

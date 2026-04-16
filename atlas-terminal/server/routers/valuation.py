@@ -1,11 +1,13 @@
 """Valuation router -- DCF calculation, smart defaults, analyst consensus,
 sensitivity analysis, Monte Carlo simulation, reverse DCF, and tornado charts."""
 
+import logging
 from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _safe_float(val, default=0.0):
@@ -55,6 +57,7 @@ async def dcf_inputs(ticker: str):
 
         return {"fcf": fcf, "total_debt": total_debt, "cash": cash, "shares": shares}
     except Exception:
+        logger.exception("dcf-inputs fallback")
         return {"fcf": None, "total_debt": 0, "cash": 0, "shares": None}
 
 
@@ -118,6 +121,7 @@ async def calculate_dcf(inputs: DCFInputsBody):
             },
         }
     except Exception:
+        logger.exception("calculate_dcf failed")
         return {"base": None, "bull": None, "bear": None, "current_price": None}
 
 
@@ -147,6 +151,7 @@ async def smart_defaults(ticker: str):
             "sector": sector, "industry": industry,
         }
     except Exception:
+        logger.exception("smart_defaults/%s failed", ticker)
         return {"wacc": 9, "terminal_growth": 2.5, "fcf_growth": 10, "sector": "N/A", "industry": "N/A"}
 
 
@@ -195,6 +200,7 @@ async def sensitivity_analysis(body: SensitivityBody):
         )
         return result
     except Exception as exc:
+        logger.exception("valuation endpoint failed")
         return {"error": str(exc)}
 
 
@@ -209,6 +215,7 @@ async def tornado_chart(body: SensitivityBody):
         )
         return {"data": result}
     except Exception as exc:
+        logger.exception("valuation endpoint failed")
         return {"error": str(exc)}
 
 
@@ -245,6 +252,7 @@ async def monte_carlo_dcf(body: MonteCarloBody):
             result["values"] = []
         return result
     except Exception as exc:
+        logger.exception("valuation endpoint failed")
         return {"error": str(exc)}
 
 
@@ -276,6 +284,7 @@ async def reverse_dcf_endpoint(body: ReverseDCFBody):
             "current_price": current_price,
         }
     except Exception as exc:
+        logger.exception("valuation endpoint failed")
         return {"error": str(exc)}
 
 
@@ -295,4 +304,5 @@ async def analyst_consensus(ticker: str):
             "num_analysts": info.get("numberOfAnalystOpinions", 0),
         }
     except Exception:
+        logger.exception("consensus/%s failed", ticker)
         return {"target_mean": None, "target_high": None, "target_low": None, "target_median": None, "recommendation": "N/A", "num_analysts": 0}

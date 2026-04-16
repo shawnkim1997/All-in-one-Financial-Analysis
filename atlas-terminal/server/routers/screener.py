@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 from fastapi import APIRouter
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.post("/search")
@@ -15,6 +17,7 @@ async def search_stocks(filters: dict):
 
         return await run_screener(filters)
     except Exception as e:
+        logger.exception("screener endpoint failed")
         return {"error": str(e), "data": []}
 
 
@@ -34,6 +37,7 @@ async def backtest(body: dict):
             rebalance_months=body.get("rebalance_months"),
         )
     except Exception as e:
+        logger.exception("screener endpoint failed")
         return {"error": str(e)}
 
 
@@ -59,4 +63,5 @@ async def portfolio_backtest(body: dict):
             benchmark_ticker=str(body.get("benchmark_ticker") or "SPY"),
         )
     except Exception as e:
+        logger.exception("screener endpoint failed")
         return {"error": str(e)}

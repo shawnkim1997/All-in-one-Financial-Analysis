@@ -1,41 +1,102 @@
-# ATLAS Terminal — Web Application
+# ATLAS Terminal
 
-> Next.js 14 + FastAPI full-stack financial analysis terminal.
->
-> See the [main README](../README.md) for full documentation.
+Institutional-style equity research terminal built with Next.js 14 and FastAPI.
+
+ATLAS Terminal brings market overview, quant research, valuation, technical analysis, macro monitoring, filings workflows, and printable institutional reports into one desktop-first interface.
+
+## What It Does
+
+- Multi-asset overview for equities, ETFs, commodities, crypto, FX, and macro signals
+- Quant research dashboards with F-Score, DuPont, anomalies, Sankey, and waterfall views
+- Valuation tooling including DCF, sensitivity, Monte Carlo, tornado, and reverse DCF
+- Technical analysis with candlesticks, moving averages, Bollinger Bands, RSI, MACD, and Fibonacci levels
+- Cross-market monitoring through macro, smart-money, yield/FX, earnings, news, filings, and portfolio pages
+- Institutional report generation with printable PDF-style layouts
+
+## Core Product Principle
+
+> LLMs handle text. Python handles numbers.
+
+Qualitative analysis, summarization, and narrative framing can be AI-assisted, while valuation logic, financial metrics, and quantitative workflows are computed deterministically in code.
+
+## Product Tour
+
+### Overview
+
+![ATLAS overview](./docs/media/atlas-overview.png)
+
+### Valuation
+
+![ATLAS valuation](./docs/media/atlas-valuation.png)
+
+### Technical Analysis
+
+![ATLAS technical analysis](./docs/media/atlas-technical.png)
+
+### Institutional Report
+
+![ATLAS institutional report](./docs/media/atlas-report.png)
+
+## Demo Assets
+
+- [Open recorded demo video](./docs/media/atlas-demo.mp4)
+- [Open report preview PDF](./docs/media/atlas-report-preview.pdf)
+
+You can also click the screenshot below to open the recorded walkthrough:
+
+[![Watch the ATLAS demo](./docs/media/atlas-overview.png)](./docs/media/atlas-demo.mp4)
+
+## Stack
+
+- Frontend: Next.js 14, React 18, TypeScript, Tailwind CSS, Recharts, Lightweight Charts
+- Backend: FastAPI, Python 3.12+, Pydantic, yfinance, pandas, scipy
+- Data: SEC, DART, EDINET, FRED, OECD, DBnomics, Yahoo Finance
+- AI: Gemini for qualitative analysis only
+- Storage: SQLite by default
+
+## Key Pages
+
+- `/` overview dashboard
+- `/research` quant research workbench
+- `/valuation` DCF and scenario analysis
+- `/technical` chart-driven technical analysis
+- `/macro` macro and smart-money dashboard
+- `/filings` SEC, DART, and EDINET workflows
+- `/report` institutional report generator
+- `/portfolio` portfolio tracking and OCR import
 
 ## Quick Start
 
-```bash
-# Backend (from atlas-terminal/)
-pip install -r requirements.txt
-PYTHONPATH="." uvicorn server.main:app --port 8000
+### Backend
 
-# Frontend (from atlas-terminal/apps/web/)
+```bash
+pip install -r requirements.txt
+PYTHONPATH="." uvicorn server.main:app --host 127.0.0.1 --port 8000
+```
+
+### Frontend
+
+```bash
+cd apps/web
 npm install
 npm run dev
 ```
 
-- **Frontend:** http://localhost:3000
-- **Backend:** http://localhost:8000
-- **API Docs:** http://localhost:8000/docs
+### Local URLs
 
-## Stack
+- Frontend: [http://localhost:3000](http://localhost:3000)
+- Backend: [http://127.0.0.1:8000](http://127.0.0.1:8000)
+- API docs: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
 
-- **Frontend:** Next.js 14, TypeScript, Tailwind CSS, TradingView Lightweight Charts
-- **Backend:** FastAPI, Python 3.12+, yfinance, yahooquery, Google Gemini
-- **Database:** SQLite (local) / PostgreSQL (production)
+## Recent Work
 
-## Recent Updates
+- Morgan Stanley-inspired redesign across the shell, overview, research, valuation, technical, macro, settings, and report flows
+- Shared chart palette and UI primitives for a more consistent desktop terminal experience
+- Research dashboard performance fixes for faster repeat loads and less blocking on page open
+- Improved macro failure states, report messaging, tooltip formatting, and chart legibility
 
-**2026-03-24**
+## Why This Project
 
-- **Macro:** Global Macro & Smart Money dashboard (`/macro`), Recharts widgets, FastAPI `/api/macro/quadrant`, `/yield-fx`, `/smart-money` (FRED + yfinance + OECD/DBnomics).
-- **Stability:** Sidebar `dynamic(..., ssr: false)`; `useTicker` hydration-safe init; `app/error.tsx`; macro/research layouts use Tailwind grid (removed `react-grid-layout`).
-- **News / Filings:** Iframe fallback for blocked publishers (e.g. Yahoo); SEC filings show plain text when HTML snapshot cache is absent.
+ATLAS Terminal started as an attempt to build a personal Bloomberg-lite for retail investing workflows: high information density, clean narrative structure, and a hard separation between AI-generated language and deterministic financial computation.
 
-**Earlier**
-
-- Multi-asset analysis branching across Overview/Research/Valuation/Earnings for equity, ETF, and commodity futures.
-- Commodity and ETF market widgets; index-level stock heatmap with interactive index switching.
-- Portfolio OCR upgrades, exchange selection (e.g. SMSN → `SMSN.L`), inline edit/delete; exchange-aware recalculation and FX matrix for multi-currency display.
+It is currently optimized as a desktop-first personal research environment rather than a SaaS product.

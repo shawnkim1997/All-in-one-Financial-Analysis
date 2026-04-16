@@ -1,12 +1,16 @@
 """Crypto router -- live cryptocurrency prices from Bithumb (KRW) and Binance (USD)."""
 
+import asyncio
+import logging
 from typing import List
 
+import httpx
 from fastapi import APIRouter, HTTPException
 
 from server.models.schemas import CryptoPrice
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 # Top 20 symbols tracked by default
 TOP_SYMBOLS = [
@@ -22,19 +26,17 @@ _BITHUMB_MAP = {
 }
 
 
-def _fetch_binance_prices(symbols: List[str]) -> dict:
+async def _fetch_binance_prices(client: httpx.AsyncClient, symbols: List[str]) -> dict:
     """Fetch USD prices from Binance API for the given symbols."""
-    import requests
-
     url = "https://api.binance.com/api/v3/ticker/price"
     try:
-        resp = requests.get(url, timeout=10)
+        resp = await client.get(url, timeout=10)
         resp.raise_for_status()
         data = resp.json()
-    except Exception:
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.warning("Binance prices fetch failed: %s", exc)
         return {}
 
-    # Build lookup: symbol (no USDT suffix) -> price
     prices = {}
     lookup = {item["symbol"]: float(item["price"]) for item in data}
     for sym in symbols:
@@ -44,37 +46,40 @@ def _fetch_binance_prices(symbols: List[str]) -> dict:
     return prices
 
 
-def _fetch_bithumb_prices(symbols: List[str]) -> dict:
-    """Fetch KRW prices from Bithumb public API."""
-    import requests
-
-    prices = {}
-    for sym in symbols:
+async def _fetch_bithumb_prices(client: httpx.AsyncClient, symbols: List[str]) -> dict:
+    """Fetch KRW prices from Bithumb public API (parallel)."""
+    async def _one(sym: str):
         bithumb_sym = _BITHUMB_MAP.get(sym.upper(), sym.upper())
         url = f"https://api.bithumb.com/public/ticker/{bithumb_sym}_KRW"
         try:
-            resp = requests.get(url, timeout=5)
+            resp = await client.get(url, timeout=5)
             resp.raise_for_status()
             data = resp.json()
             if data.get("status") == "0000":
                 closing = data.get("data", {}).get("closing_price")
                 if closing:
-                    prices[sym.upper()] = float(closing)
-        except Exception:
-            continue
+                    return sym.upper(), float(closing)
+        except (httpx.HTTPError, ValueError) as exc:
+            logger.debug("Bithumb %s failed: %s", sym, exc)
+        return None
+
+    results = await asyncio.gather(*[_one(s) for s in symbols], return_exceptions=True)
+    prices = {}
+    for r in results:
+        if isinstance(r, tuple):
+            prices[r[0]] = r[1]
     return prices
 
 
-def _fetch_binance_24h_changes(symbols: List[str]) -> dict:
+async def _fetch_binance_24h_changes(client: httpx.AsyncClient, symbols: List[str]) -> dict:
     """Fetch 24h percentage changes from Binance."""
-    import requests
-
     url = "https://api.binance.com/api/v3/ticker/24hr"
     try:
-        resp = requests.get(url, timeout=10)
+        resp = await client.get(url, timeout=10)
         resp.raise_for_status()
         data = resp.json()
-    except Exception:
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.warning("Binance 24h changes fetch failed: %s", exc)
         return {}
 
     changes = {}
@@ -97,9 +102,12 @@ async def crypto_prices():
     USD prices come from Binance; KRW prices from Bithumb.
     """
     try:
-        usd_prices = _fetch_binance_prices(TOP_SYMBOLS)
-        krw_prices = _fetch_bithumb_prices(TOP_SYMBOLS)
-        changes = _fetch_binance_24h_changes(TOP_SYMBOLS)
+        async with httpx.AsyncClient() as client:
+            usd_prices, krw_prices, changes = await asyncio.gather(
+                _fetch_binance_prices(client, TOP_SYMBOLS),
+                _fetch_bithumb_prices(client, TOP_SYMBOLS),
+                _fetch_binance_24h_changes(client, TOP_SYMBOLS),
+            )
 
         results: List[CryptoPrice] = []
         for sym in TOP_SYMBOLS:
@@ -112,6 +120,7 @@ async def crypto_prices():
             ))
         return results
     except Exception as exc:
+        logger.exception("Crypto prices endpoint failed")
         raise HTTPException(status_code=500, detail=f"Crypto prices failed: {exc}") from exc
 
 
@@ -124,9 +133,12 @@ async def crypto_price(symbol: str):
     """Return current price for a single cryptocurrency symbol."""
     try:
         sym = symbol.upper()
-        usd_prices = _fetch_binance_prices([sym])
-        krw_prices = _fetch_bithumb_prices([sym])
-        changes = _fetch_binance_24h_changes([sym])
+        async with httpx.AsyncClient() as client:
+            usd_prices, krw_prices, changes = await asyncio.gather(
+                _fetch_binance_prices(client, [sym]),
+                _fetch_bithumb_prices(client, [sym]),
+                _fetch_binance_24h_changes(client, [sym]),
+            )
 
         return CryptoPrice(
             symbol=sym,
@@ -136,4 +148,5 @@ async def crypto_price(symbol: str):
             change_24h_pct=changes.get(sym),
         )
     except Exception as exc:
+        logger.exception("Crypto price endpoint failed")
         raise HTTPException(status_code=500, detail=f"Crypto price failed: {exc}") from exc

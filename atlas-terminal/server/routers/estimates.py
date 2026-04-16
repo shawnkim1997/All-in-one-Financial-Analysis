@@ -2,9 +2,11 @@
 
 from typing import Any, Dict, List, Optional
 
+import logging
 from fastapi import APIRouter
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _safe_df_to_dict(df: Any) -> List[Dict[str, Any]]:
@@ -19,6 +21,7 @@ def _safe_df_to_dict(df: Any) -> List[Dict[str, Any]]:
             return []
         return df.fillna(0).reset_index().to_dict(orient="records")
     except Exception:
+        logger.exception("estimates endpoint failed")
         return []
 
 
@@ -84,6 +87,7 @@ async def full_estimates(ticker: str) -> Dict[str, Any]:
             "price_targets": price_targets,
         }
     except Exception:
+        logger.exception("estimates endpoint failed")
         return {
             "ticker": ticker.upper(),
             "earnings_estimate": [],
@@ -120,6 +124,7 @@ async def earnings_dates(ticker: str) -> Dict[str, Any]:
             "earnings_history": history_records,
         }
     except Exception:
+        logger.exception("estimates endpoint failed")
         return {
             "ticker": ticker.upper(),
             "earnings_dates": [],
@@ -152,6 +157,7 @@ async def growth_estimates(ticker: str) -> Dict[str, Any]:
             "eps_trend": eps_records,
         }
     except Exception:
+        logger.exception("estimates endpoint failed")
         return {
             "ticker": ticker.upper(),
             "growth_estimates": [],

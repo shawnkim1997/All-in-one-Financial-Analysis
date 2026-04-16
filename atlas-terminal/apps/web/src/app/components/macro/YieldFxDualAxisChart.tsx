@@ -10,6 +10,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { chartPalette } from "../../lib/chart-theme";
 
 export interface YieldFxRow {
   date: string;
@@ -45,24 +46,24 @@ export function YieldFxDualAxisChart({
       <p className="text-text-muted text-xs font-mono mb-2">{meta.title}</p>
       <ResponsiveContainer width="100%" height="100%">
         <ComposedChart data={rows} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#2A2A3A" />
-          <XAxis dataKey="date" tick={{ fill: "#9CA3AF", fontSize: 10 }} minTickGap={24} />
+          <CartesianGrid strokeDasharray="3 3" stroke={chartPalette.grid} />
+          <XAxis dataKey="date" tick={{ fill: chartPalette.textMuted, fontSize: 10 }} minTickGap={24} />
           <YAxis
             yAxisId="left"
-            tick={{ fill: "#00D4AA", fontSize: 10 }}
+            tick={{ fill: chartPalette.navy, fontSize: 10 }}
             domain={["auto", "auto"]}
-            label={{ value: "Spread (ppt)", angle: -90, position: "insideLeft", fill: "#00D4AA", fontSize: 10 }}
+            label={{ value: "Spread (ppt)", angle: -90, position: "insideLeft", fill: chartPalette.navy, fontSize: 10 }}
           />
           <YAxis
             yAxisId="right"
             orientation="right"
-            tick={{ fill: "#4DA6FF", fontSize: 10 }}
+            tick={{ fill: chartPalette.blue, fontSize: 10 }}
             domain={["auto", "auto"]}
-            label={{ value: meta.fx, angle: 90, position: "insideRight", fill: "#4DA6FF", fontSize: 10 }}
+            label={{ value: meta.fx, angle: 90, position: "insideRight", fill: chartPalette.blue, fontSize: 10 }}
           />
           <Tooltip
-            contentStyle={{ background: "#1A1A26", border: "1px solid #2A2A3A", fontSize: 12 }}
-            labelStyle={{ color: "#F3F4F6" }}
+            contentStyle={{ background: chartPalette.canvas, border: `1px solid ${chartPalette.grid}`, fontSize: 12 }}
+            labelStyle={{ color: chartPalette.text }}
           />
           <Legend wrapperStyle={{ fontSize: 11 }} />
           <Line
@@ -70,7 +71,7 @@ export function YieldFxDualAxisChart({
             type="monotone"
             dataKey="spread_pct"
             name="US10Y − peer (ppt)"
-            stroke="#00D4AA"
+            stroke={chartPalette.navy}
             dot={false}
             strokeWidth={2}
           />
@@ -79,7 +80,7 @@ export function YieldFxDualAxisChart({
             type="monotone"
             dataKey="fx"
             name={meta.fx}
-            stroke="#4DA6FF"
+            stroke={chartPalette.blue}
             dot={false}
             strokeWidth={2}
           />

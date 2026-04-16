@@ -3,6 +3,9 @@
 import { useEffect, useState } from "react";
 import { KpiSection, type KpiHistoryData } from "./KpiSection";
 import { PeerComparison, type PeerComparisonData } from "./PeerComparison";
+import { Card } from "../ui/Card";
+import { SectionHeading } from "../ui/SectionHeading";
+import { StatCard } from "../ui/StatCard";
 
 interface EquityOverviewProps {
   ticker: string;
@@ -43,31 +46,25 @@ export function EquityOverview({ ticker, sector, health }: EquityOverviewProps) 
   ];
 
   return (
-    <div>
-      <h1 className="text-2xl font-bold mb-1">
-        <span className="text-accent-green">{ticker}</span> Overview
-      </h1>
+    <div className="atlas-page">
+      <SectionHeading level={1}>{ticker} Overview</SectionHeading>
       {sector?.current_price != null && (
-        <p className="text-3xl font-mono font-bold text-text-primary mb-6">${Number(sector.current_price).toFixed(2)}</p>
+        <p className="text-3xl font-mono font-bold text-text-primary">${Number(sector.current_price).toFixed(2)}</p>
       )}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
         {metrics.map((m) => (
-          <div key={m.label} className="bg-bg-card border border-border rounded-lg p-4">
-            <div className="text-text-muted text-xs mb-1">{m.label}</div>
-            <div className="text-text-primary font-semibold">{m.value}</div>
-          </div>
+          <StatCard key={m.label} label={m.label} value={m.value} />
         ))}
       </div>
       <ConsensusGauge sector={sector} />
       <KpiSection data={kpiData} />
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-4">
-        <Card title="Altman Z-Score" value={health?.altman_z != null ? Number(health.altman_z).toFixed(2) : "—"} />
-        <Card title="Current Ratio" value={health?.current_ratio != null ? Number(health.current_ratio).toFixed(2) : "—"} />
-        <Card title="Interest Cov." value={health?.interest_coverage != null ? `${Number(health.interest_coverage).toFixed(1)}x` : "—"} />
-        <Card title="D/E Ratio" value={health?.debt_to_equity != null ? Number(health.debt_to_equity).toFixed(2) : "—"} />
+      <div className="grid grid-cols-1 gap-4 mb-4 lg:grid-cols-4">
+        <OverviewStat title="Altman Z-Score" value={health?.altman_z != null ? Number(health.altman_z).toFixed(2) : "—"} />
+        <OverviewStat title="Current Ratio" value={health?.current_ratio != null ? Number(health.current_ratio).toFixed(2) : "—"} />
+        <OverviewStat title="Interest Cov." value={health?.interest_coverage != null ? `${Number(health.interest_coverage).toFixed(1)}x` : "—"} />
+        <OverviewStat title="D/E Ratio" value={health?.debt_to_equity != null ? Number(health.debt_to_equity).toFixed(2) : "—"} />
       </div>
-      <div className="bg-bg-card border border-border rounded-lg p-5">
-        <h3 className="text-text-secondary text-sm font-semibold mb-3">DuPont Analysis</h3>
+      <Card title="DuPont Analysis">
         {!!health?.dupont && typeof health.dupont === "object" && health.dupont !== null ? (
           <div className="space-y-2">
             {[
@@ -85,7 +82,7 @@ export function EquityOverview({ ticker, sector, health }: EquityOverviewProps) 
         ) : (
           <div className="text-text-muted">No data</div>
         )}
-      </div>
+      </Card>
       <PeerComparison currentTicker={ticker} data={peerData} />
     </div>
   );
@@ -113,9 +110,8 @@ function ConsensusGauge({ sector }: { sector: Record<string, unknown> | null }) 
   const targetPct = range > 0 ? Math.max(0, Math.min(100, ((target - gaugeLow) / range) * 100)) : 50;
 
   return (
-    <div className="bg-bg-card border border-border rounded-lg p-5 mb-6">
+    <Card title="Analyst Consensus" className="mb-6">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-text-secondary text-sm font-semibold">Analyst Consensus</h3>
         {count != null && <span className="text-text-muted text-xs">{count} analysts</span>}
       </div>
       <div className="flex items-baseline gap-4 mb-4">
@@ -135,25 +131,24 @@ function ConsensusGauge({ sector }: { sector: Record<string, unknown> | null }) 
         </div>
       </div>
       {/* Visual gauge bar */}
-      <div className="relative h-2 bg-bg-hover rounded-full mb-2">
+      <div className="relative mb-2 h-2 rounded-full bg-surface-sunken">
         {/* target marker */}
-        <div className="absolute top-0 h-2 w-0.5 bg-accent-yellow" style={{ left: `${targetPct}%` }} />
+        <div className="absolute top-0 h-2 w-0.5 bg-brand-gold" style={{ left: `${targetPct}%` }} />
         {/* current price marker */}
-        <div className="absolute -top-1 h-4 w-1 bg-accent-green rounded-sm" style={{ left: `${currentPct}%` }} />
+        <div className="absolute -top-1 h-4 w-1 rounded-sm bg-brand-navy" style={{ left: `${currentPct}%` }} />
       </div>
       <div className="flex justify-between text-text-muted text-xs font-mono">
         <span>${gaugeLow.toFixed(0)}</span>
         <span>${gaugeHigh.toFixed(0)}</span>
       </div>
-    </div>
+    </Card>
   );
 }
 
-function Card({ title, value }: { title: string; value: string }) {
+function OverviewStat({ title, value }: { title: string; value: string }) {
   return (
-    <div className="bg-bg-card border border-border rounded-lg p-5">
-      <h3 className="text-text-secondary text-sm font-semibold mb-3">{title}</h3>
+    <Card title={title}>
       <div className="text-3xl font-mono font-bold text-text-primary">{value}</div>
-    </div>
+    </Card>
   );
 }

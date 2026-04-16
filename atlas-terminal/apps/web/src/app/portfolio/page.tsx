@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
+import { AlertTriangle, Check, CheckCircle2, CircleX, Pencil, Trash2 } from "lucide-react";
 
 interface Position {
   id?: string;
@@ -474,7 +475,13 @@ export default function PortfolioPage() {
                         {p.pnl_pct != null ? `${p.pnl_pct >= 0 ? "+" : ""}${p.pnl_pct.toFixed(2)}%` : "—"}
                       </td>
                       <td className="px-3 py-2">
-                        {p.confidence === "high" ? "✅" : p.confidence === "medium" ? "⚠️" : "❌"}
+                        {p.confidence === "high" ? (
+                          <CheckCircle2 className="h-4 w-4 text-fin-positive" />
+                        ) : p.confidence === "medium" ? (
+                          <AlertTriangle className="h-4 w-4 text-fin-warning" />
+                        ) : (
+                          <CircleX className="h-4 w-4 text-fin-negative" />
+                        )}
                       </td>
                           </>
                         );
@@ -491,8 +498,9 @@ export default function PortfolioPage() {
               >
                 Cancel
               </button>
-              <button onClick={importOcrPositions} className="bg-accent-green text-bg-primary px-5 py-2 rounded-md font-semibold hover:opacity-90 transition-opacity">
-                ✅ Add All to Portfolio
+              <button onClick={importOcrPositions} className="inline-flex items-center gap-2 bg-accent-green text-bg-primary px-5 py-2 rounded-md font-semibold hover:opacity-90 transition-opacity">
+                <Check className="h-4 w-4" />
+                Add All to Portfolio
               </button>
             </div>
           </div>
@@ -564,8 +572,12 @@ export default function PortfolioPage() {
                     <td className="px-4 py-2.5 text-right">
                       {editingId === pid ? (
                         <div className="flex gap-1 justify-end">
-                          <button onClick={() => handleSaveEdit(pid)} className="w-8 h-8 rounded bg-accent-green/20 hover:bg-accent-green/30">✓</button>
-                          <button onClick={() => setEditingId(null)} className="w-8 h-8 rounded bg-bg-primary hover:bg-bg-hover">✕</button>
+                          <button onClick={() => handleSaveEdit(pid)} className="flex h-8 w-8 items-center justify-center rounded bg-accent-green/20 hover:bg-accent-green/30">
+                            <Check className="h-4 w-4" />
+                          </button>
+                          <button onClick={() => setEditingId(null)} className="flex h-8 w-8 items-center justify-center rounded bg-bg-primary hover:bg-bg-hover">
+                            <CircleX className="h-4 w-4" />
+                          </button>
                         </div>
                       ) : (
                         <div className="flex gap-1 justify-end">
@@ -574,17 +586,17 @@ export default function PortfolioPage() {
                               setEditingId(pid);
                               setEditValues({ qty: String(p.quantity), avgPrice: String(p.avg_price) });
                             }}
-                            className="w-8 h-8 rounded hover:bg-bg-hover"
+                            className="flex h-8 w-8 items-center justify-center rounded hover:bg-bg-hover"
                             title="Edit position"
                           >
-                            ✏️
+                            <Pencil className="h-4 w-4" />
                           </button>
                           <button
                             onClick={() => setDeleteConfirmId(pid)}
-                            className="w-8 h-8 rounded hover:bg-accent-red/20"
+                            className="flex h-8 w-8 items-center justify-center rounded hover:bg-accent-red/20"
                             title="Delete position"
                           >
-                            🗑️
+                            <Trash2 className="h-4 w-4" />
                           </button>
                         </div>
                       )}

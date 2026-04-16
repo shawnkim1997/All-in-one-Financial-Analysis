@@ -1,5 +1,8 @@
 "use client";
 import { useState, useEffect } from "react";
+import { CheckCircle2, CircleOff, LoaderCircle } from "lucide-react";
+import { Card } from "../components/ui/Card";
+import { SectionHeading } from "../components/ui/SectionHeading";
 
 const KEYS = [
   { id: "atlas_gemini_key", label: "Gemini API Key", placeholder: "AIza..." },
@@ -36,36 +39,38 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="max-w-2xl">
-      <h1 className="text-2xl font-bold mb-6">Settings</h1>
+    <div className="atlas-page max-w-3xl">
+      <SectionHeading level={1}>Settings</SectionHeading>
 
-      {/* Backend Status */}
-      <div className="bg-bg-card border border-border rounded-lg p-4 mb-6">
-        <h3 className="text-text-secondary text-sm font-semibold mb-3">System Status</h3>
+      <Card title="System Status" subtitle="Local keys and backend health for your desk.">
         <div className="flex items-center gap-3">
-          <div className={`w-3 h-3 rounded-full ${backendStatus === "ok" ? "bg-accent-green" : backendStatus === "error" ? "bg-accent-red" : "bg-accent-yellow animate-pulse"}`} />
+          {backendStatus === "ok" ? (
+            <CheckCircle2 className="h-5 w-5 text-fin-positive" />
+          ) : backendStatus === "error" ? (
+            <CircleOff className="h-5 w-5 text-fin-negative" />
+          ) : (
+            <LoaderCircle className="h-5 w-5 animate-spin text-brand-blue" />
+          )}
           <span className="text-text-primary text-sm">
             Backend API: {backendStatus === "ok" ? "Connected" : backendStatus === "error" ? "Disconnected" : "Checking..."}
           </span>
         </div>
-      </div>
+      </Card>
 
-      {/* API Keys */}
-      <div className="bg-bg-card border border-border rounded-lg p-5 mb-6">
-        <h3 className="text-text-secondary text-sm font-semibold mb-4">API Keys</h3>
+      <Card title="API Keys" subtitle="Stored locally in this browser session.">
         <div className="space-y-4">
           {KEYS.map((k) => (
             <div key={k.id}>
-              <label className="text-text-muted text-sm mb-1.5 block">{k.label}</label>
+              <label className="mb-1.5 block text-sm text-text-muted">{k.label}</label>
               <div className="flex items-center gap-3">
                 <input
                   type="password"
                   value={values[k.id] || ""}
                   onChange={(e) => setValues({ ...values, [k.id]: e.target.value })}
                   placeholder={k.placeholder}
-                  className="flex-1 bg-bg-primary border border-border rounded-md px-3 py-2 text-text-primary outline-none focus:border-accent-green transition-colors"
+                  className="flex-1 rounded-md border border-border bg-surface-raised px-3 py-2 text-text-primary outline-none transition-colors focus:border-brand-blue"
                 />
-                <div className={`w-2.5 h-2.5 rounded-full ${values[k.id] ? "bg-accent-green" : "bg-text-muted"}`} />
+                <div className={`h-2.5 w-2.5 rounded-full ${values[k.id] ? "bg-fin-positive" : "bg-text-muted"}`} />
               </div>
             </div>
           ))}
@@ -73,20 +78,18 @@ export default function SettingsPage() {
 
         <button
           onClick={handleSave}
-          className="mt-5 bg-accent-green text-bg-primary px-6 py-2 rounded-md font-semibold hover:opacity-90 transition-opacity"
+          className="mt-5 rounded-md bg-brand-navy px-6 py-2 font-semibold text-white transition-colors hover:bg-brand-blue"
         >
           {saved ? "Saved!" : "Save Keys"}
         </button>
-      </div>
+      </Card>
 
-      {/* Info */}
-      <div className="bg-bg-card border border-border rounded-lg p-4">
-        <h3 className="text-text-secondary text-sm font-semibold mb-2">About</h3>
+      <Card title="About">
         <div className="text-text-muted text-sm space-y-1">
           <p>ATLAS Terminal v2.0 — Advanced Trading & Liquidity Analysis System</p>
           <p>API keys are stored locally in your browser. They are never sent to our servers.</p>
         </div>
-      </div>
+      </Card>
     </div>
   );
 }

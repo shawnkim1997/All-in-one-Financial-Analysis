@@ -9,6 +9,8 @@ import { EconomicCalendar } from "../components/markets/EconomicCalendar";
 import { GlobalMacroQuadrantChart, type QuadrantPoint } from "../components/macro/GlobalMacroQuadrantChart";
 import { YieldFxDualAxisChart, type YieldFxRow } from "../components/macro/YieldFxDualAxisChart";
 import { SmartMoneyPanel } from "../components/macro/SmartMoneyPanel";
+import { ErrorBanner } from "../components/ui/ErrorBanner";
+import { LoadingPulse } from "../components/ui/LoadingPulse";
 
 const FRED_PRESETS = [
   { id: "UNRATE", label: "US Unemployment %" },
@@ -40,6 +42,30 @@ interface SubfactorData {
   categories: Record<string, { score: number; indicators: SubfactorIndicator[] }>;
 }
 
+const MACRO_ERROR_MESSAGES: Record<string, string> = {
+  upstream_timeout: "Upstream macro source timed out. Try again in a moment.",
+  fred_empty: "FRED returned no usable series for this view.",
+  fx_empty: "FX history could not be loaded for this pair.",
+  invalid_pair: "This yield/FX pair is not supported.",
+  missing_peer: "Peer bond series is unavailable for this pair.",
+};
+
+function formatMacroError(error: unknown, fallback: string): string {
+  if (typeof error !== "string" || !error.trim()) {
+    return fallback;
+  }
+
+  if (error in MACRO_ERROR_MESSAGES) {
+    return MACRO_ERROR_MESSAGES[error];
+  }
+
+  if (error.startsWith("HTTP_")) {
+    return `Request failed (${error.replace("HTTP_", "HTTP ")}).`;
+  }
+
+  return error.replaceAll("_", " ");
+}
+
 export default function MacroPage() {
   const [series, setSeries] = useState("UNRATE");
   const [rows, setRows] = useState<FredPoint[]>([]);
@@ -55,10 +81,12 @@ export default function MacroPage() {
   const [subfactors, setSubfactors] = useState<SubfactorData | null>(null);
 
   const [quadPoints, setQuadPoints] = useState<QuadrantPoint[]>([]);
+  const [quadLoading, setQuadLoading] = useState(true);
   const [quadErr, setQuadErr] = useState<string | null>(null);
 
   const [yieldPair, setYieldPair] = useState<"usdjpy" | "eurusd" | "usdkrw">("usdjpy");
   const [yieldRows, setYieldRows] = useState<YieldFxRow[]>([]);
+  const [yieldLoading, setYieldLoading] = useState(true);
   const [yieldErr, setYieldErr] = useState<string | null>(null);
 
   const [roroZ, setRoroZ] = useState<number | null>(null);
@@ -66,43 +94,60 @@ export default function MacroPage() {
   const [copperGold, setCopperGold] = useState<
     { date: string; ratio: number; ratio_ma20?: number }[]
   >([]);
+  const [smartLoading, setSmartLoading] = useState(true);
   const [smartErr, setSmartErr] = useState<string | null>(null);
 
   useEffect(() => {
     setLoading(true);
     setErr(null);
-    fetch(`/api/macro/fred/${encodeURIComponent(series)}`)
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+    const controller = new AbortController();
+    fetch(`/api/macro/fred/${encodeURIComponent(series)}`, { signal: controller.signal })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP_${r.status}`))))
       .then((j) => {
         setRows(Array.isArray(j.data) ? j.data : []);
         setLoading(false);
       })
-      .catch(() => {
-        setErr("Failed to load FRED series.");
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        setErr(formatMacroError(error instanceof Error ? error.message : error, "Failed to load FRED series."));
         setLoading(false);
       });
+    return () => controller.abort();
   }, [series]);
 
   useEffect(() => {
-    fetch("/api/macro/snapshot")
-      .then((r) => (r.ok ? r.json() : null))
+    setSnapErr(null);
+    const controller = new AbortController();
+    fetch("/api/macro/snapshot", { signal: controller.signal })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP_${r.status}`))))
       .then((j) => {
         if (!j || typeof j !== "object") {
           setSnap(null);
+          setSnapErr("Macro snapshot returned an empty payload.");
           return;
         }
-        if (j.error) setSnapErr(String(j.error));
+        const cycleHeatmap = Array.isArray(j.cycle_heatmap) ? j.cycle_heatmap : [];
+        const countryHeatmap = Array.isArray(j.country_heatmap) ? j.country_heatmap : [];
+        const assetValuation = Array.isArray(j.asset_valuation) ? j.asset_valuation : [];
+        const hasSnapshotData = cycleHeatmap.length > 0 || countryHeatmap.length > 0 || assetValuation.length > 0;
+        if (j.error) setSnapErr(formatMacroError(j.error, "Failed to load macro snapshot."));
+        else if (!hasSnapshotData) setSnapErr("Macro snapshot returned no usable data.");
         else setSnapErr(null);
         setSnap({
           updated_at: j.updated_at ?? null,
           cycle_score: typeof j.cycle_score === "number" ? j.cycle_score : 0,
           regime: String(j.regime ?? "—"),
-          cycle_heatmap: Array.isArray(j.cycle_heatmap) ? j.cycle_heatmap : [],
-          country_heatmap: Array.isArray(j.country_heatmap) ? j.country_heatmap : [],
-          asset_valuation: Array.isArray(j.asset_valuation) ? j.asset_valuation : [],
+          cycle_heatmap: cycleHeatmap,
+          country_heatmap: countryHeatmap,
+          asset_valuation: assetValuation,
         });
       })
-      .catch(() => setSnap(null));
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        setSnap(null);
+        setSnapErr(formatMacroError(error instanceof Error ? error.message : error, "Failed to load macro snapshot."));
+      });
+    return () => controller.abort();
   }, []);
 
   useEffect(() => {
@@ -123,55 +168,100 @@ export default function MacroPage() {
 
   useEffect(() => {
     setQuadErr(null);
-    fetch("/api/macro/quadrant")
-      .then((r) => (r.ok ? r.json() : null))
+    setQuadLoading(true);
+    const controller = new AbortController();
+    fetch("/api/macro/quadrant", { signal: controller.signal })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP_${r.status}`))))
       .then((j) => {
         if (!j || typeof j !== "object") {
           setQuadPoints([]);
+          setQuadErr("Macro quadrant returned an empty payload.");
           return;
         }
-        if (j.error) setQuadErr(String(j.error));
-        setQuadPoints(Array.isArray(j.points) ? j.points : []);
+        const points = Array.isArray(j.points) ? j.points : [];
+        if (j.error) setQuadErr(formatMacroError(j.error, "Failed to load macro quadrant."));
+        else if (!points.length) setQuadErr("No quadrant points were produced from current macro sources.");
+        setQuadPoints(points);
       })
-      .catch(() => setQuadPoints([]));
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        setQuadPoints([]);
+        setQuadErr(formatMacroError(error instanceof Error ? error.message : error, "Failed to load macro quadrant."));
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setQuadLoading(false);
+        }
+      });
+    return () => controller.abort();
   }, []);
 
   useEffect(() => {
     setYieldErr(null);
-    fetch(`/api/macro/yield-fx?pair=${encodeURIComponent(yieldPair)}`)
-      .then((r) => (r.ok ? r.json() : null))
+    setYieldLoading(true);
+    const controller = new AbortController();
+    fetch(`/api/macro/yield-fx?pair=${encodeURIComponent(yieldPair)}`, { signal: controller.signal })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP_${r.status}`))))
       .then((j) => {
         if (!j || typeof j !== "object") {
           setYieldRows([]);
+          setYieldErr("Yield/FX returned an empty payload.");
           return;
         }
-        if (j.error) setYieldErr(String(j.error));
-        setYieldRows(Array.isArray(j.series) ? j.series : []);
+        const seriesRows = Array.isArray(j.series) ? j.series : [];
+        if (j.error) setYieldErr(formatMacroError(j.error, "Failed to load yield/FX data."));
+        else if (!seriesRows.length) setYieldErr("Yield/FX returned no usable observations.");
+        setYieldRows(seriesRows);
       })
-      .catch(() => setYieldRows([]));
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        setYieldRows([]);
+        setYieldErr(formatMacroError(error instanceof Error ? error.message : error, "Failed to load yield/FX data."));
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setYieldLoading(false);
+        }
+      });
+    return () => controller.abort();
   }, [yieldPair]);
 
   useEffect(() => {
     setSmartErr(null);
-    fetch("/api/macro/smart-money")
-      .then((r) => (r.ok ? r.json() : null))
+    setSmartLoading(true);
+    const controller = new AbortController();
+    fetch("/api/macro/smart-money", { signal: controller.signal })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP_${r.status}`))))
       .then((j) => {
         if (!j || typeof j !== "object") {
           setRoroZ(null);
           setRoroLabel(null);
           setCopperGold([]);
+          setSmartErr("Smart money returned an empty payload.");
           return;
         }
-        if (j.error) setSmartErr(String(j.error));
-        setRoroZ(typeof j.roro_z === "number" ? j.roro_z : null);
-        setRoroLabel(j.roro_label != null ? String(j.roro_label) : null);
-        setCopperGold(Array.isArray(j.copper_gold) ? j.copper_gold : []);
+        const nextRoroZ = typeof j.roro_z === "number" ? j.roro_z : null;
+        const nextRoroLabel = j.roro_label != null ? String(j.roro_label) : null;
+        const nextCopperGold = Array.isArray(j.copper_gold) ? j.copper_gold : [];
+        if (j.error) setSmartErr(formatMacroError(j.error, "Failed to load smart money data."));
+        else if (nextRoroZ == null && !nextCopperGold.length) setSmartErr("Smart money inputs returned no usable data.");
+        setRoroZ(nextRoroZ);
+        setRoroLabel(nextRoroLabel);
+        setCopperGold(nextCopperGold);
       })
-      .catch(() => {
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
         setRoroZ(null);
         setRoroLabel(null);
         setCopperGold([]);
+        setSmartErr(formatMacroError(error instanceof Error ? error.message : error, "Failed to load smart money data."));
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setSmartLoading(false);
+        }
       });
+    return () => controller.abort();
   }, []);
 
   const tabs: { key: MacroTab; label: string }[] = [
@@ -198,10 +288,12 @@ export default function MacroPage() {
           <div className="lg:col-span-12 bg-bg-secondary/30 border border-border/60 rounded-lg p-4">
             <h2 className="text-sm font-semibold text-text-primary mb-1">Global macro quadrant</h2>
             <p className="text-text-muted text-xs mb-3">3M momentum Z-scores (growth vs inflation).</p>
-            {quadErr && (
-              <div className="text-accent-yellow text-xs font-mono mb-2">Warning: {quadErr}</div>
+            <ErrorBanner message={quadErr} variant="warning" className="mb-3" />
+            {quadLoading ? (
+              <LoadingPulse label="Loading macro quadrant…" height="h-[320px]" />
+            ) : (
+              <GlobalMacroQuadrantChart points={quadPoints} />
             )}
-            <GlobalMacroQuadrantChart points={quadPoints} />
           </div>
 
           <div className="lg:col-span-6 bg-bg-secondary/30 border border-border/60 rounded-lg p-4">
@@ -224,19 +316,23 @@ export default function MacroPage() {
                 ))}
               </div>
             </div>
-            {yieldErr && (
-              <div className="text-accent-yellow text-xs font-mono mb-2">Warning: {yieldErr}</div>
+            <ErrorBanner message={yieldErr} variant="warning" className="mb-3" />
+            {yieldLoading ? (
+              <LoadingPulse label="Loading yield/FX series…" height="h-[280px]" />
+            ) : (
+              <YieldFxDualAxisChart pair={yieldPair} rows={yieldRows} />
             )}
-            <YieldFxDualAxisChart pair={yieldPair} rows={yieldRows} />
           </div>
 
           <div className="lg:col-span-6 bg-bg-secondary/30 border border-border/60 rounded-lg p-4">
             <h2 className="text-sm font-semibold text-text-primary mb-1">Smart money &amp; RORO</h2>
             <p className="text-text-muted text-xs mb-3">HG/GC ratio and composite risk Z-score.</p>
-            {smartErr && (
-              <div className="text-accent-yellow text-xs font-mono mb-2">Warning: {smartErr}</div>
+            <ErrorBanner message={smartErr} variant="warning" className="mb-3" />
+            {smartLoading ? (
+              <LoadingPulse label="Loading smart money indicators…" height="h-[260px]" />
+            ) : (
+              <SmartMoneyPanel roroZ={roroZ} roroLabel={roroLabel} copperGold={copperGold} />
             )}
-            <SmartMoneyPanel roroZ={roroZ} roroLabel={roroLabel} copperGold={copperGold} />
           </div>
         </div>
       </div>
@@ -287,9 +383,9 @@ export default function MacroPage() {
                 </div>
 
                 {loading ? (
-                  <div className="text-accent-green animate-pulse font-mono">Loading data...</div>
+                  <LoadingPulse label="Loading FRED series…" height="h-20" className="justify-start" />
                 ) : err ? (
-                  <div className="text-accent-red border border-accent-red/30 rounded-lg p-4">{err}</div>
+                  <ErrorBanner message={err} variant="error" />
                 ) : (
                   <div className="bg-bg-secondary border border-border rounded-lg overflow-hidden">
                     <div className="px-4 py-2 border-b border-border text-text-muted text-sm font-mono">
@@ -377,11 +473,7 @@ export default function MacroPage() {
 
             {tab === "cycle" && (
               <div className="space-y-4">
-                {snapErr && (
-                  <div className="text-accent-yellow border border-accent-yellow/30 rounded-lg p-3 text-sm">
-                    Snapshot warning: {snapErr}
-                  </div>
-                )}
+                <ErrorBanner message={snapErr ? `Snapshot warning: ${snapErr}` : null} variant="warning" />
                 <MacroCycleHeatmap data={snap} />
               </div>
             )}

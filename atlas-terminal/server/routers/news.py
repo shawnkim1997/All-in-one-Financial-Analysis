@@ -1,5 +1,7 @@
 """News router -- Finviz scrape + Google News RSS + Yahoo Finance RSS."""
 
+import asyncio
+import logging
 from typing import List
 
 from fastapi import APIRouter, HTTPException, Query
@@ -8,6 +10,7 @@ from server.models.schemas import NewsItem
 from server.services.news_aggregator import merge_news_for_router
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.get(
@@ -18,9 +21,12 @@ router = APIRouter()
 async def get_news(ticker: str):
     """Return recent articles: Finviz table, Google News RSS, Yahoo headline RSS."""
     try:
-        merged = merge_news_for_router(ticker.upper(), max_articles=40)
+        merged = await asyncio.to_thread(
+            merge_news_for_router, ticker.upper(), 40
+        )
         return [NewsItem(**item) for item in merged]
     except Exception as exc:
+        logger.exception("News fetch failed for %s", ticker)
         raise HTTPException(status_code=500, detail=f"News fetch failed: {exc}") from exc
 
 
@@ -34,7 +40,9 @@ async def ai_news_summary(
 ):
     """Fetch merged news and optionally summarize with Gemini."""
     try:
-        all_items = merge_news_for_router(ticker.upper(), max_articles=30)
+        all_items = await asyncio.to_thread(
+            merge_news_for_router, ticker.upper(), 30
+        )
         headlines: List[str] = []
         for item in all_items:
             title = (item.get("title") or "").strip()
@@ -61,7 +69,9 @@ Provide a concise 3-5 sentence executive summary of the overall sentiment and ke
 
 Headlines:
 {headline_text}"""
-        response = _generate_with_retry(model, prompt, {"temperature": 0.2, "max_output_tokens": 512})
+        response = await asyncio.to_thread(
+            _generate_with_retry, model, prompt, {"temperature": 0.2, "max_output_tokens": 512}
+        )
         summary = (response.text or "").strip() if response else ""
 
         return {
@@ -71,4 +81,5 @@ Headlines:
             "items": all_items,
         }
     except Exception as exc:
+        logger.exception("AI news summary failed for %s", ticker)
         raise HTTPException(status_code=500, detail=f"AI news summary failed: {exc}") from exc

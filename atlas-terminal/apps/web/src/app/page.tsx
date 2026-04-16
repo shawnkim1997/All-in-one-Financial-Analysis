@@ -1,55 +1,57 @@
 "use client";
-import { useEffect, useState } from "react";
-import { useTicker } from "./lib/use-ticker";
+
+import { CommodityOverview } from "./components/overview/CommodityOverview";
 import { EquityOverview } from "./components/overview/EquityOverview";
 import { ETFOverview } from "./components/overview/ETFOverview";
-import { CommodityOverview } from "./components/overview/CommodityOverview";
+import { ErrorBanner } from "./components/ui/ErrorBanner";
+import { LoadingPulse } from "./components/ui/LoadingPulse";
+import { SectionHeading } from "./components/ui/SectionHeading";
+import { useApi } from "./lib/use-api";
+import { useTicker } from "./lib/use-ticker";
+
+interface OverviewResp {
+  asset_type?: string;
+  data?: Record<string, unknown>;
+}
 
 export default function OverviewPage() {
   const { ticker, initialized } = useTicker();
-  const [sector, setSector] = useState<Record<string, unknown> | null>(null);
-  const [health, setHealth] = useState<Record<string, unknown> | null>(null);
-  const [overview, setOverview] = useState<Record<string, unknown> | null>(null);
-  const [assetType, setAssetType] = useState<string>("equity");
-  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    if (!initialized) return;
-    const ac = new AbortController();
-    setLoading(true);
-    setSector(null);
-    setHealth(null);
-    setOverview(null);
-    Promise.all([
-      fetch(`/api/market/sector/${ticker}`, { signal: ac.signal }).then((r) => r.ok ? r.json() : null),
-      fetch(`/api/market/health/${ticker}`, { signal: ac.signal }).then((r) => r.ok ? r.json() : null),
-      fetch(`/api/market/overview/${ticker}`, { signal: ac.signal }).then((r) => r.ok ? r.json() : null),
-    ]).then(([s, h, d]) => {
-      if (ac.signal.aborted) return;
-      setSector(s);
-      setHealth(h);
-      setAssetType(d?.asset_type || "equity");
-      setOverview(d?.data || null);
-      setLoading(false);
-    }).catch(() => { if (!ac.signal.aborted) setLoading(false); });
-    return () => ac.abort();
-  }, [ticker, initialized]);
+  const sectorUrl = initialized ? `/api/market/sector/${ticker}` : null;
+  const healthUrl = initialized ? `/api/market/health/${ticker}` : null;
+  const overviewUrl = initialized ? `/api/market/overview/${ticker}` : null;
 
-  if (loading) return <LoadingState />;
+  const sector = useApi<Record<string, unknown>>(sectorUrl);
+  const health = useApi<Record<string, unknown>>(healthUrl);
+  const overview = useApi<OverviewResp>(overviewUrl);
+
+  const loading = !initialized || sector.loading || health.loading || overview.loading;
+  if (loading) return <LoadingPulse label="Loading data..." />;
+
+  // Surface only truly catastrophic failures as a banner — per-component empty
+  // states already handle partial data gracefully.
+  const fatalError =
+    sector.error && health.error && overview.error
+      ? "Unable to reach the backend. Please start the API server or refresh."
+      : null;
+
+  if (fatalError) {
+    return (
+      <div className="atlas-page">
+        <SectionHeading level={1}>{ticker} Overview</SectionHeading>
+        <ErrorBanner variant="error" message={fatalError} />
+      </div>
+    );
+  }
+
+  const assetType = overview.data?.asset_type || "equity";
+  const overviewData = overview.data?.data || {};
 
   if (assetType === "etf") {
-    return <ETFOverview ticker={ticker} data={overview || {}} />;
+    return <ETFOverview ticker={ticker} data={overviewData} />;
   }
   if (assetType === "commodity_future") {
-    return <CommodityOverview ticker={ticker} data={overview || {}} />;
+    return <CommodityOverview ticker={ticker} data={overviewData} />;
   }
-  return <EquityOverview ticker={ticker} sector={sector} health={health} />;
-}
-
-function LoadingState() {
-  return (
-    <div className="flex items-center justify-center h-64">
-      <div className="text-accent-green animate-pulse font-mono">Loading data...</div>
-    </div>
-  );
+  return <EquityOverview ticker={ticker} sector={sector.data} health={health.data} />;
 }

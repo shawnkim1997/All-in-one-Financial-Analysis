@@ -1,6 +1,19 @@
 "use client";
 import { useEffect, useState } from "react";
+import { ErrorBanner } from "../components/ui/ErrorBanner";
+import { LoadingPulse } from "../components/ui/LoadingPulse";
+import { SectionHeading } from "../components/ui/SectionHeading";
+import { useApi } from "../lib/use-api";
 import { useTicker } from "../lib/use-ticker";
+
+interface SmartDefaults {
+  wacc?: number;
+  terminal_growth?: number;
+  fcf_growth?: number;
+}
+interface OverviewResp {
+  asset_type?: string;
+}
 
 interface DCFInputs {
   fcf?: number;
@@ -51,47 +64,59 @@ type ValuationTab = "dcf" | "sensitivity" | "montecarlo" | "tornado" | "reverse"
 
 export default function ValuationPage() {
   const { ticker, initialized } = useTicker();
-  const [assetType, setAssetType] = useState<string>("equity");
-  const [inputs, setInputs] = useState<DCFInputs | null>(null);
-  const [consensus, setConsensus] = useState<Consensus | null>(null);
-  const [dcfResult, setDcfResult] = useState<DCFResult | null>(null);
   const [wacc, setWacc] = useState(10);
   const [terminalGrowth, setTerminalGrowth] = useState(2.5);
   const [fcfGrowth, setFcfGrowth] = useState(8);
-  const [loading, setLoading] = useState(true);
   const [dcfLoading, setDcfLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<ValuationTab>("dcf");
 
-  // Advanced models state
+  // Advanced models state (user-triggered; still raw fetch — will be split in P1-3)
+  const [dcfResult, setDcfResult] = useState<DCFResult | null>(null);
   const [sensitivity, setSensitivity] = useState<SensitivityData | null>(null);
   const [tornado, setTornado] = useState<TornadoItem[]>([]);
   const [monteCarlo, setMonteCarlo] = useState<MonteCarloData | null>(null);
   const [reverseDCF, setReverseDCF] = useState<{ implied_growth: number | null; current_price: number | null } | null>(null);
   const [advLoading, setAdvLoading] = useState(false);
+  const [runtimeNotice, setRuntimeNotice] = useState<string>("");
 
+  // Initial data fetch via useApi — dedupes with /page and /research overview calls.
+  const inputsApi = useApi<DCFInputs>(initialized ? `/api/valuation/dcf-inputs/${ticker}` : null);
+  const consensusApi = useApi<Consensus>(initialized ? `/api/valuation/consensus/${ticker}` : null);
+  const defaultsApi = useApi<SmartDefaults>(initialized ? `/api/valuation/smart-defaults/${ticker}` : null);
+  const overviewApi = useApi<OverviewResp>(initialized ? `/api/market/overview/${ticker}` : null);
+
+  const inputs = inputsApi.data;
+  const consensus = consensusApi.data;
+  const assetType = overviewApi.data?.asset_type || "equity";
+  const loading = !initialized || inputsApi.loading || consensusApi.loading || defaultsApi.loading || overviewApi.loading;
+
+  // Apply smart defaults once loaded.
   useEffect(() => {
-    if (!initialized) return;
-    setLoading(true);
+    const d = defaultsApi.data;
+    if (!d) return;
+    if (d.wacc) setWacc(d.wacc);
+    if (d.terminal_growth) setTerminalGrowth(d.terminal_growth);
+    if (d.fcf_growth) setFcfGrowth(d.fcf_growth);
+  }, [defaultsApi.data]);
+
+  // Reset downstream model results when ticker changes.
+  useEffect(() => {
     setDcfResult(null);
     setSensitivity(null);
     setTornado([]);
     setMonteCarlo(null);
     setReverseDCF(null);
-    Promise.all([
-      fetch(`/api/valuation/dcf-inputs/${ticker}`).then((r) => r.ok ? r.json() : null),
-      fetch(`/api/valuation/consensus/${ticker}`).then((r) => r.ok ? r.json() : null),
-      fetch(`/api/valuation/smart-defaults/${ticker}`).then((r) => r.ok ? r.json() : null),
-      fetch(`/api/market/overview/${ticker}`).then((r) => r.ok ? r.json() : null),
-    ]).then(([i, c, d, o]) => {
-      setInputs(i);
-      setConsensus(c);
-      setAssetType(o?.asset_type || "equity");
-      if (d?.wacc) setWacc(d.wacc);
-      if (d?.terminal_growth) setTerminalGrowth(d.terminal_growth);
-      if (d?.fcf_growth) setFcfGrowth(d.fcf_growth);
-      setLoading(false);
-    }).catch(() => setLoading(false));
-  }, [ticker, initialized]);
+    setRuntimeNotice("");
+  }, [ticker]);
+
+  // Derived notice: prioritise runtime errors (DCF failures), then load-time warnings.
+  const loadNotice =
+    runtimeNotice ||
+    (inputsApi.error
+      ? "Could not load valuation inputs. Check the backend connection and retry."
+      : !loading && (!inputs?.fcf || !inputs?.shares)
+      ? `DCF inputs are incomplete for ${ticker}. Smart defaults applied — review values before running models.`
+      : "");
 
   async function runDCF() {
     if (!inputs) return;
@@ -111,8 +136,15 @@ export default function ValuationPage() {
           fcf_growth_rate: fcfGrowth / 100,
         }),
       });
-      if (res.ok) setDcfResult(await res.json());
-    } catch { /* */ }
+      if (res.ok) {
+        setDcfResult(await res.json());
+        setRuntimeNotice("");
+      } else {
+        setRuntimeNotice("DCF calculation failed. Verify inputs or retry shortly.");
+      }
+    } catch {
+      setRuntimeNotice("DCF request could not reach the backend.");
+    }
     setDcfLoading(false);
   }
 
@@ -167,19 +199,20 @@ export default function ValuationPage() {
         });
         if (res.ok) setReverseDCF(await res.json());
       }
-    } catch { /* */ }
+      setRuntimeNotice("");
+    } catch {
+      setRuntimeNotice(`${tab} model request failed. Check the backend and retry.`);
+    }
     setAdvLoading(false);
   }
 
-  if (loading) return <div className="flex items-center justify-center h-64"><div className="text-accent-green animate-pulse font-mono">Loading...</div></div>;
+  if (loading) return <LoadingPulse label="Loading..." />;
 
   if (assetType !== "equity") {
     return (
-      <div>
-        <h1 className="text-2xl font-bold mb-6">
-          <span className="text-accent-green">{ticker}</span> Valuation
-        </h1>
-        <div className="bg-bg-card border border-border rounded-lg p-5">
+      <div className="atlas-page">
+        <SectionHeading level={1}>{ticker} Valuation</SectionHeading>
+        <div className="atlas-card p-5">
           <h3 className="text-text-secondary text-sm font-semibold mb-3">
             {assetType === "etf" ? "ETF Valuation Mode" : "Commodity Valuation Mode"}
           </h3>
@@ -194,10 +227,10 @@ export default function ValuationPage() {
   }
 
   return (
-    <div>
-      <h1 className="text-2xl font-bold mb-6">
-        <span className="text-accent-green">{ticker}</span> Valuation
-      </h1>
+    <div className="atlas-page">
+      <SectionHeading level={1}>{ticker} Valuation</SectionHeading>
+
+      <ErrorBanner className="mb-4" variant="info" message={loadNotice || null} />
 
       {/* Analyst Consensus */}
       {consensus && (
@@ -522,14 +555,14 @@ function SliderInput({ label, value, onChange, min, max, step, suffix }: {
     <div>
       <div className="flex justify-between text-sm mb-2">
         <span className="text-text-muted">{label}</span>
-        <span className="text-accent-green font-mono font-semibold">{value}{suffix}</span>
+          <span className="font-mono font-semibold text-brand-navy">{value}{suffix}</span>
       </div>
       <input
         type="range"
         min={min} max={max} step={step}
         value={value}
         onChange={(e) => onChange(parseFloat(e.target.value))}
-        className="w-full accent-[#00D4AA]"
+        className="w-full accent-brand-navy"
       />
     </div>
   );

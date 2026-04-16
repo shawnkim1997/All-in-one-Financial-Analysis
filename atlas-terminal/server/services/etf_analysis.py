@@ -147,6 +147,24 @@ async def get_equity_overview(ticker: str) -> dict:
 
     t = yf.Ticker(ticker.upper())
     info = t.info or {}
+
+    # Fallback: derive 52W low/high from history when yfinance returns 0 or None
+    # (common for some Asian tickers like 005930.KS where info.fiftyTwoWeekLow == 0)
+    hi52 = _safe_num(info.get("fiftyTwoWeekHigh"))
+    lo52 = _safe_num(info.get("fiftyTwoWeekLow"))
+    if not hi52 or not lo52 or lo52 == 0:
+        try:
+            hist = t.history(period="1y")
+            if hist is not None and len(hist) > 0:
+                h_max = float(hist["High"].max())
+                l_min = float(hist["Low"].min())
+                if not hi52:
+                    hi52 = h_max
+                if not lo52 or lo52 == 0:
+                    lo52 = l_min
+        except Exception:
+            pass
+
     return {
         "name": info.get("longName") or info.get("shortName", ticker.upper()),
         "sector": info.get("sector"),
@@ -155,8 +173,25 @@ async def get_equity_overview(ticker: str) -> dict:
         "pe_ratio": _safe_num(info.get("trailingPE")) or _safe_num(info.get("forwardPE")),
         "dividend_yield": _safe_num(info.get("dividendYield")),
         "beta": _safe_num(info.get("beta")),
-        "high_52w": _safe_num(info.get("fiftyTwoWeekHigh")),
-        "low_52w": _safe_num(info.get("fiftyTwoWeekLow")),
+        "high_52w": hi52,
+        "low_52w": lo52,
         "price": _safe_num(info.get("currentPrice") or info.get("regularMarketPrice")),
         "description": info.get("longBusinessSummary"),
+        "currency": info.get("currency") or info.get("financialCurrency") or "USD",
+        "exchange": info.get("exchange"),
+        "country": info.get("country"),
+        "full_time_employees": info.get("fullTimeEmployees"),
+        "average_volume": _safe_num(info.get("averageVolume")),
+        "trailing_pe": _safe_num(info.get("trailingPE")),
+        "forward_pe": _safe_num(info.get("forwardPE")),
+        "enterprise_to_ebitda": _safe_num(info.get("enterpriseToEbitda")),
+        "debt_to_equity": _safe_num(info.get("debtToEquity")),
+        "return_on_equity": _safe_num(info.get("returnOnEquity")),
+        "return_on_assets": _safe_num(info.get("returnOnAssets")),
+        "free_cashflow": _safe_num(info.get("freeCashflow")),
+        "revenue_growth": _safe_num(info.get("revenueGrowth")),
+        "profit_margins": _safe_num(info.get("profitMargins")),
+        "target_mean_price": _safe_num(info.get("targetMeanPrice")),
+        "recommendation": info.get("recommendationKey"),
+        "num_analysts": info.get("numberOfAnalystOpinions"),
     }

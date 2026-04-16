@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Info } from "lucide-react";
 import {
   FilingsViewer,
   type FilingsViewerHandle,
@@ -330,8 +331,9 @@ export default function FilingsPage() {
             </div>
           )}
           {error && (
-            <div className="mt-3 bg-accent-red/10 border border-accent-red/30 rounded-md px-4 py-2.5 text-accent-red text-sm">
-              {error}
+            <div className="mt-3 flex items-start gap-2 rounded-md border border-accent-yellow/30 bg-accent-yellow/10 px-4 py-2.5 text-sm text-accent-yellow">
+              <Info className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>{error}</span>
             </div>
           )}
           {loading && (

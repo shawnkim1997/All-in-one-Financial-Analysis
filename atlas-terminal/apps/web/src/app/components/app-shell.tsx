@@ -16,7 +16,7 @@ const SidebarClient = dynamic(
     ssr: false,
     loading: () => (
       <aside
-        className="w-[260px] fixed top-[52px] bottom-0 left-0 z-40 border-r border-border bg-bg-primary"
+        className="fixed bottom-0 left-0 top-[56px] z-40 w-[260px] border-r border-border bg-surface-raised"
         aria-hidden
       />
     ),
@@ -27,9 +27,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <>
       <TickerBar />
-      <div className="flex min-h-screen pt-[52px]">
+      <div className="flex min-h-screen bg-surface-canvas pt-[56px]">
         <SidebarClient />
-        <main className="flex-1 ml-[260px] mr-[380px] p-7 bg-bg-primary min-h-[calc(100vh-52px)] transition-all duration-200">
+        <main className="ml-[260px] mr-[380px] min-h-[calc(100vh-56px)] flex-1 bg-transparent p-7 transition-all duration-200">
           {children}
         </main>
         <ChatPanel />

@@ -1,5 +1,8 @@
 """EDINET Japan — optional annual report (有価証券報告書) + link fallbacks."""
 
+import asyncio
+import logging
+
 from fastapi import APIRouter, HTTPException, Query
 
 from server.models.schemas import EdgarSectionsResponse
@@ -10,11 +13,12 @@ from server.services.edinet_filing_service import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.get("/links/{ticker}", summary="EDINET portal links (no API key required)")
 async def edinet_links(ticker: str):
-    return get_edinet_links(ticker)
+    return await asyncio.to_thread(get_edinet_links, ticker)
 
 
 @router.get(
@@ -30,12 +34,15 @@ async def edinet_sections(
     ),
 ):
     try:
-        sections, status, html_frag, meta = get_edinet_sections(ticker)
+        sections, status, html_frag, meta = await asyncio.to_thread(
+            get_edinet_sections, ticker
+        )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
+        logger.exception("EDINET sections failed for %s", ticker)
         raise HTTPException(status_code=500, detail=f"EDINET failed: {exc}") from exc
 
     links = meta.get("links") if isinstance(meta.get("links"), dict) else None

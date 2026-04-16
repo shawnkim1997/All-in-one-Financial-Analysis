@@ -1,10 +1,12 @@
 """Financial statements router -- statements, highlights, and ratios."""
 
+import logging
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _df_to_periods(df: Any, max_periods: int = 5) -> List[Dict[str, Any]]:
@@ -130,6 +132,7 @@ async def financial_statements(ticker: str) -> Dict[str, Any]:
             "revenue_yoy_growth": revenue_growth,
         }
     except Exception:
+        logger.exception("financials endpoint failed")
         return {
             "ticker": ticker.upper(),
             "income_statement": [],
@@ -173,6 +176,7 @@ async def financial_highlights(ticker: str) -> Dict[str, Any]:
             "book_value": _safe_get(info, "bookValue"),
             "earnings_growth": _safe_get(info, "earningsGrowth"),
             "revenue_growth": _safe_get(info, "revenueGrowth"),
+            "currency": info.get("currency") or info.get("financialCurrency") or "USD",
         }
 
         # Derive EBITDA margin if both values exist
@@ -183,6 +187,7 @@ async def financial_highlights(ticker: str) -> Dict[str, Any]:
 
         return highlights
     except Exception:
+        logger.exception("financials endpoint failed")
         return {
             "ticker": ticker.upper(),
             "company_name": "",
@@ -207,6 +212,7 @@ async def kpi_history(ticker: str) -> Dict[str, Any]:
 
         return build_kpi_history(ticker)
     except Exception:
+        logger.exception("financials endpoint failed")
         return {
             "ticker": ticker.upper(),
             "quarters": [],
@@ -270,6 +276,7 @@ async def financial_ratios(ticker: str) -> Dict[str, Any]:
 
         return ratios
     except Exception:
+        logger.exception("financials endpoint failed")
         return {
             "ticker": ticker.upper(),
             "trailing_pe": None, "forward_pe": None,

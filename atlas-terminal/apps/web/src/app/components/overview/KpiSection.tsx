@@ -1,5 +1,7 @@
 "use client";
 
+import { chartPalette } from "../../lib/chart-theme";
+
 export interface KpiHistoryData {
   ticker: string;
   quarters: string[];
@@ -63,8 +65,8 @@ function Sparkline({ values }: { values: Array<number | null> }) {
 
   return (
     <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-16">
-      <path d={path} fill="none" stroke="#00D4AA" strokeWidth="2" strokeLinecap="round" />
-      <circle cx={lastX} cy={lastY} r="3" fill="#00D4AA" />
+      <path d={path} fill="none" stroke={chartPalette.blue} strokeWidth="2" strokeLinecap="round" />
+      <circle cx={lastX} cy={lastY} r="3" fill={chartPalette.gold} />
     </svg>
   );
 }

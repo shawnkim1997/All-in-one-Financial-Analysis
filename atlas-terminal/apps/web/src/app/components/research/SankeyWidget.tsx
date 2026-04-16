@@ -1,20 +1,21 @@
 "use client";
 
 import { ResponsiveSankey } from "@nivo/sankey";
+import { chartPalette } from "../../lib/chart-theme";
 import type { SankeyNivoLink, SankeyNivoNode } from "./types";
 
 const nivoTheme = {
   background: "transparent",
-  text: { fill: "#9CA3AF", fontSize: 11 },
+  text: { fill: chartPalette.textMuted, fontSize: 11 },
   tooltip: {
     container: {
-      background: "#1A1A26",
-      color: "#E5E7EB",
+      background: chartPalette.canvas,
+      color: chartPalette.text,
       fontSize: 12,
-      border: "1px solid #374151",
+      border: `1px solid ${chartPalette.grid}`,
     },
   },
-  labels: { text: { fill: "#D1D5DB" } },
+  labels: { text: { fill: chartPalette.text } },
 };
 
 export function SankeyWidget({

@@ -44,7 +44,7 @@ def fetch_fred_series(
     url = f"{_FRED_CSV}?id={sid}"
     try:
         req = Request(url, headers={"User-Agent": _USER_AGENT})
-        with urlopen(req, timeout=45) as resp:
+        with urlopen(req, timeout=10) as resp:
             text = resp.read().decode("utf-8", errors="replace")
     except Exception:
         return []
@@ -104,7 +104,7 @@ def fetch_ecos_series(
     url = "https://ecos.bok.or.kr" + path
     try:
         req = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urllib.request.urlopen(req, timeout=10) as resp:
             raw = resp.read().decode("utf-8", errors="replace")
     except Exception:
         return []

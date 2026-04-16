@@ -204,7 +204,7 @@ def _fetch_fred_series(fred_code: str):
         return web.DataReader(fred_code, "fred", start=start).dropna()
     except Exception:
         url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={fred_code}"
-        response = requests.get(url, timeout=20)
+        response = requests.get(url, timeout=8)
         response.raise_for_status()
         df = pd.read_csv(StringIO(response.text))
         date_column = "DATE" if "DATE" in df.columns else "observation_date"
@@ -222,7 +222,7 @@ def _fetch_worldbank_latest(country_code: str, indicator: str) -> Optional[float
             f"https://api.worldbank.org/v2/country/{country_code}"
             f"/indicator/{indicator}?format=json&per_page=5&mrv=3"
         )
-        resp = requests.get(url, timeout=12)
+        resp = requests.get(url, timeout=6)
         data = resp.json()
         if len(data) > 1 and data[1]:
             for item in data[1]:

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { chartPalette, lightweightTheme } from "../lib/chart-theme";
 
 interface ScreenerRow {
   ticker: string;
@@ -156,19 +157,17 @@ export default function ScreenerPage() {
         chart = createChart(el, {
           width: el.clientWidth,
           height: 320,
-          layout: { background: { color: "#1A1A26" }, textColor: "#9CA3AF" },
-          grid: { vertLines: { color: "#2A2A3A" }, horzLines: { color: "#2A2A3A" } },
+          ...lightweightTheme,
           crosshair: { mode: 0 },
-          timeScale: { borderColor: "#2A2A3A" },
         });
-        const strat = chart.addLineSeries({ color: "#00D4AA", lineWidth: 2 });
+        const strat = chart.addLineSeries({ color: chartPalette.navy, lineWidth: 2 });
         strat.setData(
           btResult.dates!.map((d, i) => ({
             time: d as string & { __brand?: "Time" },
             value: btResult.equity_curve![i],
           }))
         );
-        const bench = chart.addLineSeries({ color: "#4DA6FF", lineWidth: 2 });
+        const bench = chart.addLineSeries({ color: chartPalette.blue, lineWidth: 2 });
         bench.setData(
           btResult.dates!.map((d, i) => ({
             time: d as string & { __brand?: "Time" },
@@ -203,19 +202,17 @@ export default function ScreenerPage() {
         chart = createChart(el, {
           width: el.clientWidth,
           height: 320,
-          layout: { background: { color: "#1A1A26" }, textColor: "#9CA3AF" },
-          grid: { vertLines: { color: "#2A2A3A" }, horzLines: { color: "#2A2A3A" } },
+          ...lightweightTheme,
           crosshair: { mode: 0 },
-          timeScale: { borderColor: "#2A2A3A" },
         });
-        const port = chart.addLineSeries({ color: "#00D4AA", lineWidth: 2 });
+        const port = chart.addLineSeries({ color: chartPalette.navy, lineWidth: 2 });
         port.setData(
           ptResult.dates!.map((d, i) => ({
             time: d as string & { __brand?: "Time" },
             value: ptResult.equity_curve![i],
           }))
         );
-        const bench = chart.addLineSeries({ color: "#4DA6FF", lineWidth: 2 });
+        const bench = chart.addLineSeries({ color: chartPalette.blue, lineWidth: 2 });
         bench.setData(
           ptResult.dates!.map((d, i) => ({
             time: d as string & { __brand?: "Time" },
