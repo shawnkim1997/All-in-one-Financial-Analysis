@@ -81,7 +81,7 @@ app.add_middleware(
 )
 
 # --- Mount routers ---
-from server.routers import edgar, analysis, valuation, market_data, news, crypto, fx, portfolio, technical, financials, estimates, earnings, insider, screener, markets, fmp, macro, dart, edinet, research, chat  # noqa: E402
+from server.routers import edgar, analysis, valuation, market_data, news, crypto, fx, portfolio, technical, financials, estimates, earnings, insider, screener, markets, fmp, macro, dart, edinet, research, chat, copilot  # noqa: E402
 
 app.include_router(edgar.router, prefix="/api/edgar", tags=["SEC EDGAR"])
 app.include_router(analysis.router, prefix="/api/analysis", tags=["AI Analysis"])
@@ -104,6 +104,7 @@ app.include_router(dart.router, prefix="/api/dart", tags=["DART"])
 app.include_router(edinet.router, prefix="/api/edinet", tags=["EDINET"])
 app.include_router(research.router, prefix="/api/research", tags=["Research"])
 app.include_router(chat.router, prefix="/api/chat", tags=["Chat"])
+app.include_router(copilot.router, prefix="/api/copilot", tags=["Copilot"])
 
 
 @app.get("/health")

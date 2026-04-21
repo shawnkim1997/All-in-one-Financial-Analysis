@@ -185,10 +185,10 @@ def _damodaran_wacc_for_sector(sector: str) -> float:
     if not sector:
         return 8.0
     s = (sector or "").lower()
-    if "software" in s or "technology" in s or "internet" in s:
-        return DAMODARAN_WACC.get("Software", 8.5)
     if "hardware" in s or "semiconductor" in s:
         return DAMODARAN_WACC.get("Hardware", 9.0)
+    if "software" in s or "internet" in s or s in {"technology", "information technology"}:
+        return DAMODARAN_WACC.get("Software", 8.5)
     if "retail" in s or "consumer" in s or "cyclical" in s:
         return DAMODARAN_WACC.get("Retail", 7.5)
     if "financial" in s or "bank" in s or "insurance" in s:

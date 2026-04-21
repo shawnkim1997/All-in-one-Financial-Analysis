@@ -9,12 +9,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
  *  - Hydration-safe (doesn't fire on the server).
  *  - Automatic AbortController management across deps changes / unmount.
  *  - Module-scoped in-flight request dedup: same URL + same method share a promise.
+ *  - Short completed-response cache for GET route revisits.
  *  - Parses `{ detail }` and `{ error }` backend error shapes.
  *  - Conditional fetch via `opts.enabled` or passing `url = null`.
  *  - Manual `refetch()` escape hatch.
- *
- * We intentionally do NOT cache responses. A future SWR migration can layer caching
- * on top without changing the hook surface.
  */
 
 type Json = unknown;
@@ -25,7 +23,13 @@ interface InFlightEntry {
   refCount: number;
 }
 
+interface CacheEntry {
+  payload: unknown;
+  expiresAt: number;
+}
+
 const inflight = new Map<string, InFlightEntry>();
+const responseCache = new Map<string, CacheEntry>();
 
 function makeKey(url: string, method: string, body?: string): string {
   return `${method.toUpperCase()} ${url}${body ? ` :: ${body}` : ""}`;
@@ -101,6 +105,7 @@ export interface UseApiOptions {
   method?: "GET" | "POST";
   body?: Json;
   headers?: Record<string, string>;
+  cacheTtlMs?: number;
 }
 
 export interface UseApiResult<T> {
@@ -114,7 +119,7 @@ export function useApi<T = unknown>(
   url: string | null,
   opts: UseApiOptions = {},
 ): UseApiResult<T> {
-  const { enabled = true, method = "GET", body, headers } = opts;
+  const { enabled = true, method = "GET", body, headers, cacheTtlMs } = opts;
 
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState<boolean>(Boolean(url) && enabled !== false);
@@ -130,6 +135,7 @@ export function useApi<T = unknown>(
   }, []);
 
   const bodyStr = body !== undefined ? JSON.stringify(body) : undefined;
+  const ttlMs = cacheTtlMs ?? (method === "GET" ? 60_000 : 0);
 
   useEffect(() => {
     if (!url || enabled === false) {
@@ -138,9 +144,6 @@ export function useApi<T = unknown>(
     }
 
     const controller = new AbortController();
-    setLoading(true);
-    setError(null);
-
     const init: RequestInit = {
       method,
       headers: {
@@ -149,6 +152,19 @@ export function useApi<T = unknown>(
       },
       body: bodyStr,
     };
+    const cacheKey = makeKey(url, method, bodyStr);
+    const cached = ttlMs > 0 ? responseCache.get(cacheKey) : undefined;
+    if (cached && cached.expiresAt > Date.now()) {
+      setData(cached.payload as T);
+      setError(null);
+      setLoading(false);
+      return () => {
+        controller.abort();
+      };
+    }
+
+    setLoading(true);
+    setError(null);
 
     sharedFetch(url, init, controller.signal)
       .then(async (resp) => {
@@ -159,6 +175,9 @@ export function useApi<T = unknown>(
         const ct = resp.headers.get("content-type") || "";
         const payload = ct.includes("application/json") ? await resp.json() : await resp.text();
         if (!mountedRef.current || controller.signal.aborted) return;
+        if (ttlMs > 0) {
+          responseCache.set(cacheKey, { payload, expiresAt: Date.now() + ttlMs });
+        }
         setData(payload as T);
         setError(null);
       })
@@ -177,11 +196,12 @@ export function useApi<T = unknown>(
       controller.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [url, method, bodyStr, enabled, tick]);
+  }, [url, method, bodyStr, enabled, tick, ttlMs]);
 
   const refetch = useCallback(() => {
+    if (url) responseCache.delete(makeKey(url, method, bodyStr));
     setTick((t) => t + 1);
-  }, []);
+  }, [bodyStr, method, url]);
 
   return { data, loading, error, refetch };
 }

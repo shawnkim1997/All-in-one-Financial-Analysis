@@ -1,9 +1,12 @@
 """Portfolio router -- position management, OCR screenshot upload, summary."""
 
+import asyncio
 import json
 import os
+import time
 import uuid
 from pathlib import Path
+from threading import Lock
 from typing import List
 
 import logging
@@ -21,6 +24,9 @@ logger = logging.getLogger(__name__)
 
 # Simple file-based persistence (production would use Supabase / Postgres)
 _PORTFOLIO_FILE = Path(__file__).resolve().parent.parent.parent / "data" / "portfolio.json"
+_QUOTE_CACHE_TTL_SECONDS = 60
+_QUOTE_CACHE: dict[str, tuple[float, dict]] = {}
+_QUOTE_CACHE_LOCK = Lock()
 
 
 class PositionUpdateRequest(BaseModel):
@@ -54,23 +60,45 @@ def _save_positions(positions: List[dict]) -> None:
         json.dump(positions, f, ensure_ascii=False, indent=2)
 
 
-def _get_current_price(ticker: str) -> float | None:
-    """Fetch the latest market price for *ticker*."""
+def _get_current_quote(ticker: str, exchange: str = "") -> dict:
+    """Fetch the latest market quote for *ticker* with a short in-process TTL cache."""
     try:
         import yfinance as yf
+        from server.services.exchange_resolver import resolve_exchange_option
 
-        t = yf.Ticker(ticker.upper())
+        option = resolve_exchange_option(ticker, exchange or None) or {}
+        yf_ticker = str(option.get("yf_ticker") or ticker).upper()
+        now = time.monotonic()
+        with _QUOTE_CACHE_LOCK:
+            cached = _QUOTE_CACHE.get(yf_ticker)
+            if cached and now - cached[0] < _QUOTE_CACHE_TTL_SECONDS:
+                return cached[1]
+
+        t = yf.Ticker(yf_ticker)
+        price = None
         fast = getattr(t, "fast_info", None)
         if fast:
             price = getattr(fast, "last_price", None)
-            if price and float(price) > 0:
-                return float(price)
-        hist = t.history(period="1d")
-        if hist is not None and not hist.empty:
-            return float(hist["Close"].iloc[-1])
+        if not price or float(price) <= 0:
+            hist = t.history(period="1d")
+            if hist is not None and not hist.empty:
+                price = float(hist["Close"].iloc[-1])
+
+        quote = {
+            "price": float(price) if price and float(price) > 0 else None,
+            "currency": str(option.get("currency") or "").upper(),
+            "yf_ticker": yf_ticker,
+        }
+        with _QUOTE_CACHE_LOCK:
+            _QUOTE_CACHE[yf_ticker] = (now, quote)
+        return quote
     except Exception:
-        pass
-    return None
+        return {"price": None, "currency": "", "yf_ticker": ticker.upper()}
+
+
+async def _get_current_quote_async(ticker: str, exchange: str, semaphore: asyncio.Semaphore) -> dict:
+    async with semaphore:
+        return await asyncio.to_thread(_get_current_quote, ticker, exchange)
 
 
 # ---------------------------------------------------------------------------
@@ -288,15 +316,24 @@ async def portfolio_summary():
         enriched: List[PortfolioPosition] = []
         total_value = 0.0
         total_cost = 0.0
+        quote_semaphore = asyncio.Semaphore(8)
+        quotes = await asyncio.gather(
+            *[
+                _get_current_quote_async(str(p.get("ticker", "")), str(p.get("exchange", "")), quote_semaphore)
+                for p in positions
+            ],
+            return_exceptions=True,
+        )
 
-        for p in positions:
+        for p, quote_result in zip(positions, quotes):
+            quote = quote_result if isinstance(quote_result, dict) else {"price": None, "currency": "", "yf_ticker": p.get("ticker", "")}
             ticker = p.get("ticker", "")
             quantity = float(p.get("quantity", 0))
             avg_price = float(p.get("avg_price", 0))
             cost = quantity * avg_price
             total_cost += cost
 
-            current_price = _get_current_price(ticker)
+            current_price = quote.get("price")
             market_value = (quantity * current_price) if current_price else None
             pnl = (market_value - cost) if market_value is not None else None
             pnl_pct = (pnl / cost * 100) if (pnl is not None and cost > 0) else None
@@ -314,6 +351,8 @@ async def portfolio_summary():
                 exchange=p.get("exchange", ""),
                 source=p.get("source", "manual"),
                 current_price=current_price,
+                stock_currency=quote.get("currency") or p.get("currency", "USD"),
+                yf_ticker=quote.get("yf_ticker") or ticker,
                 market_value=market_value,
                 pnl=pnl,
                 pnl_pct=round(pnl_pct, 2) if pnl_pct is not None else None,

@@ -1,5 +1,8 @@
 """FX router -- foreign exchange rates and historical data via yfinance."""
 
+import asyncio
+import time
+from threading import Lock
 from typing import Dict, List
 
 from fastapi import APIRouter, HTTPException
@@ -7,6 +10,9 @@ from fastapi import APIRouter, HTTPException
 from server.models.schemas import FXRateResponse, FXHistoryResponse
 
 router = APIRouter()
+_FX_RATE_CACHE_TTL_SECONDS = 300
+_FX_RATE_CACHE: dict[str, tuple[float, float]] = {}
+_FX_RATE_CACHE_LOCK = Lock()
 
 # Major FX pairs tracked by default (Yahoo Finance format: XXXYYY=X)
 MAJOR_PAIRS = [
@@ -24,18 +30,31 @@ def _yf_fx_symbol(pair: str) -> str:
 def _fetch_fx_rate(pair: str) -> float | None:
     """Fetch the latest FX rate for a single pair via yfinance."""
     try:
+        cache_key = pair.upper().replace("=X", "").replace("/", "")
+        now = time.monotonic()
+        with _FX_RATE_CACHE_LOCK:
+            cached = _FX_RATE_CACHE.get(cache_key)
+            if cached and now - cached[0] < _FX_RATE_CACHE_TTL_SECONDS:
+                return cached[1]
+
         import yfinance as yf
 
         symbol = _yf_fx_symbol(pair)
         ticker = yf.Ticker(symbol)
+        rate = None
         fast = getattr(ticker, "fast_info", None)
         if fast:
             price = getattr(fast, "last_price", None)
             if price and float(price) > 0:
-                return float(price)
-        hist = ticker.history(period="1d")
-        if hist is not None and not hist.empty:
-            return float(hist["Close"].iloc[-1])
+                rate = float(price)
+        if rate is None:
+            hist = ticker.history(period="1d")
+            if hist is not None and not hist.empty:
+                rate = float(hist["Close"].iloc[-1])
+        if rate is not None:
+            with _FX_RATE_CACHE_LOCK:
+                _FX_RATE_CACHE[cache_key] = (now, rate)
+            return rate
     except Exception:
         pass
     return None
@@ -47,39 +66,27 @@ def _fetch_fx_rate(pair: str) -> float | None:
     summary="FX conversion matrix for major currencies",
 )
 async def fx_rates():
-    """Return conversion matrix (USD/GBP/EUR/JPY/KRW)."""
+    """Return conversion matrix for portfolio display currencies."""
     try:
-        gbp_usd = _fetch_fx_rate("GBPUSD") or 1.27
-        eur_usd = _fetch_fx_rate("EURUSD") or 1.08
-        usd_jpy = _fetch_fx_rate("USDJPY") or 149.5
-        usd_krw = _fetch_fx_rate("USDKRW") or 1370.0
-
+        gbp_usd, eur_usd, usd_jpy, usd_krw, usd_dkk = await asyncio.gather(
+            asyncio.to_thread(_fetch_fx_rate, "GBPUSD"),
+            asyncio.to_thread(_fetch_fx_rate, "EURUSD"),
+            asyncio.to_thread(_fetch_fx_rate, "USDJPY"),
+            asyncio.to_thread(_fetch_fx_rate, "USDKRW"),
+            asyncio.to_thread(_fetch_fx_rate, "USDDKK"),
+        )
+        usd_value = {
+            "USD": 1.0,
+            "GBP": gbp_usd or 1.27,
+            "EUR": eur_usd or 1.08,
+            "JPY": 1 / (usd_jpy or 149.5),
+            "KRW": 1 / (usd_krw or 1370.0),
+            "DKK": 1 / (usd_dkk or 6.86),
+        }
         rates = {
-            "USD_USD": 1.0,
-            "USD_GBP": 1 / gbp_usd,
-            "USD_EUR": 1 / eur_usd,
-            "USD_JPY": usd_jpy,
-            "USD_KRW": usd_krw,
-            "GBP_USD": gbp_usd,
-            "GBP_GBP": 1.0,
-            "GBP_EUR": gbp_usd / eur_usd,
-            "GBP_JPY": gbp_usd * usd_jpy,
-            "GBP_KRW": gbp_usd * usd_krw,
-            "EUR_USD": eur_usd,
-            "EUR_GBP": eur_usd / gbp_usd,
-            "EUR_EUR": 1.0,
-            "EUR_JPY": eur_usd * usd_jpy,
-            "EUR_KRW": eur_usd * usd_krw,
-            "JPY_USD": 1 / usd_jpy,
-            "JPY_GBP": 1 / (gbp_usd * usd_jpy),
-            "JPY_EUR": 1 / (eur_usd * usd_jpy),
-            "JPY_JPY": 1.0,
-            "JPY_KRW": usd_krw / usd_jpy,
-            "KRW_USD": 1 / usd_krw,
-            "KRW_GBP": 1 / (gbp_usd * usd_krw),
-            "KRW_EUR": 1 / (eur_usd * usd_krw),
-            "KRW_JPY": usd_jpy / usd_krw,
-            "KRW_KRW": 1.0,
+            f"{src}_{dst}": src_usd / dst_usd
+            for src, src_usd in usd_value.items()
+            for dst, dst_usd in usd_value.items()
         }
         return FXRateResponse(pair="MATRIX", rates=rates)
     except Exception as exc:

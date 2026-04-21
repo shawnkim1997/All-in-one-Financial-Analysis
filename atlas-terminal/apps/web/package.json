@@ -7,9 +7,12 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "clean": "rm -rf .next node_modules/.cache",
+    "typecheck": "tsc --noEmit --incremental false",
+    "e2e": "playwright test",
+    "e2e:install": "playwright install chromium",
+    "clean": "rm -rf .next .next-dev node_modules/.cache",
     "dev:clean": "npm run clean && next dev -p 3000",
-    "dev:reset": "rm -rf .next node_modules/.cache && next dev -p 3000",
+    "dev:reset": "rm -rf .next .next-dev node_modules/.cache && next dev -p 3000",
     "build:clean": "npm run clean && next build"
   },
   "dependencies": {
@@ -21,9 +24,12 @@
     "next": "14.2.35",
     "react": "^18",
     "react-dom": "^18",
-    "recharts": "^2.15.4"
+    "recharts": "^2.15.4",
+    "tinykeys": "^3.0.0",
+    "zustand": "^5.0.12"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",

@@ -1,6 +1,6 @@
 "use client";
 
-import { ResearchGridLayout } from "../components/research/ResearchGridLayout";
+import dynamic from "next/dynamic";
 import type { ResearchDashboardPayload } from "../components/research/types";
 import { ErrorBanner } from "../components/ui/ErrorBanner";
 import { LoadingPulse } from "../components/ui/LoadingPulse";
@@ -8,21 +8,32 @@ import { SectionHeading } from "../components/ui/SectionHeading";
 import { useApi } from "../lib/use-api";
 import { useTicker } from "../lib/use-ticker";
 
-interface OverviewResp {
+const ResearchGridLayout = dynamic<{ dashboard: ResearchDashboardPayload }>(
+  () => import("../components/research/ResearchGridLayout").then((mod) => mod.ResearchGridLayout),
+  {
+    ssr: false,
+    loading: () => <LoadingPulse label="Loading quant widgets…" />,
+  },
+);
+
+interface AssetTypeResp {
   asset_type?: string;
 }
 
 export default function ResearchPage() {
   const { ticker, initialized } = useTicker();
 
-  const overviewUrl = initialized ? `/api/market/overview/${ticker}` : null;
-  const dashUrl = initialized ? `/api/research/dashboard/${encodeURIComponent(ticker)}` : null;
+  const assetUrl = initialized ? `/api/market/asset-type/${ticker}` : null;
+  const asset = useApi<AssetTypeResp>(assetUrl, { cacheTtlMs: 5 * 60_000 });
 
-  const overview = useApi<OverviewResp>(overviewUrl);
+  const assetType = asset.data?.asset_type || "equity";
+  const dashUrl =
+    initialized && !asset.loading && assetType === "equity"
+      ? `/api/research/dashboard/${encodeURIComponent(ticker)}`
+      : null;
   const dashboard = useApi<ResearchDashboardPayload>(dashUrl);
 
-  const assetType = overview.data?.asset_type || "equity";
-  const loading = overview.loading || dashboard.loading;
+  const loading = asset.loading || (assetType === "equity" && dashboard.loading);
 
   if (!initialized || loading) {
     return <LoadingPulse label="Loading research…" />;

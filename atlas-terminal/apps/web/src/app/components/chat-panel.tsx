@@ -1,14 +1,15 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import { Bot, SendHorizontal } from "lucide-react";
-import { useTicker } from "../lib/use-ticker";
+import { useTerminal } from "@/stores/terminal";
 
 export function ChatPanel() {
   const [messages, setMessages] = useState<Array<{ role: string; content: string }>>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const { ticker } = useTicker();
+  const ticker = useTerminal((state) => state.activeSymbol || "AAPL");
+  const buildCopilotContext = useTerminal((state) => state.buildCopilotContext);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -23,14 +24,19 @@ export function ChatPanel() {
 
     try {
       const apiKey = localStorage.getItem("atlas_gemini_key") || "";
-      const res = await fetch("/api/analysis/strategy", {
+      const res = await fetch("/api/copilot/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ticker, question: userMsg, api_key: apiKey }),
+        body: JSON.stringify({
+          message: userMsg,
+          context: buildCopilotContext(),
+          history: messages,
+          api_key: apiKey,
+        }),
       });
       if (res.ok) {
         const data = await res.json();
-        const text = typeof data === "string" ? data : data.analysis || data.result || JSON.stringify(data);
+        const text = typeof data === "string" ? data : data.message || data.analysis || data.result || JSON.stringify(data);
         setMessages((prev) => [...prev, { role: "assistant", content: text }]);
       } else {
         setMessages((prev) => [
@@ -103,6 +109,7 @@ export function ChatPanel() {
       <div className="border-t border-border bg-surface-raised p-3">
         <div className="flex gap-2 rounded-md border border-border bg-surface-sunken px-3.5 py-2.5">
           <input
+            id="atlas-copilot-input"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSend()}

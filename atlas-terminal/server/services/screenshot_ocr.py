@@ -8,7 +8,7 @@ import re
 from typing import Any, Optional
 
 import yfinance as yf
-from server.services.exchange_resolver import resolve_ticker_with_exchange
+from server.services.exchange_resolver import resolve_exchange_option, resolve_ticker_with_exchange
 
 SCREENSHOT_OCR_PROMPT = """
 Analyze this screenshot of a stock trading app portfolio (Trading 212, IBKR, Webull, etc).
@@ -99,6 +99,12 @@ def _get_fx_rate(from_currency: str, to_currency: str) -> float:
     return fallback.get((f, t), 1.0)
 
 
+def _preferred_stock_currency(pos: dict) -> str | None:
+    """Use stock-level currency hints only; account/display value currency can differ."""
+    avg_currency = _norm_currency(pos.get("avg_price_currency"), "")
+    return avg_currency or None
+
+
 def reverse_engineer_positions(ocr_result: dict, exchange_overrides: dict[str, str] | None = None) -> list[dict]:
     account_currency = _norm_currency(ocr_result.get("account_currency"), "USD")
     out: list[dict] = []
@@ -107,7 +113,17 @@ def reverse_engineer_positions(ocr_result: dict, exchange_overrides: dict[str, s
         if not ticker:
             continue
         selected_exchange = (exchange_overrides or {}).get(ticker)
-        yf_ticker = resolve_ticker_with_exchange(ticker, selected_exchange)
+        exchange_option = resolve_exchange_option(
+            ticker,
+            selected_exchange,
+            preferred_currency=_preferred_stock_currency(pos) if not selected_exchange else None,
+        )
+        resolved_exchange = (exchange_option or {}).get("exchange") or selected_exchange or ""
+        yf_ticker = resolve_ticker_with_exchange(
+            ticker,
+            selected_exchange,
+            preferred_currency=_preferred_stock_currency(pos) if not selected_exchange else None,
+        )
         mkt = _get_realtime_price(yf_ticker)
         if not mkt:
             out.append({
@@ -124,6 +140,7 @@ def reverse_engineer_positions(ocr_result: dict, exchange_overrides: dict[str, s
                 "confidence": "low",
                 "method": "ocr_only",
                 "yf_ticker": yf_ticker,
+                "exchange": resolved_exchange,
             })
             continue
 
@@ -228,6 +245,7 @@ def reverse_engineer_positions(ocr_result: dict, exchange_overrides: dict[str, s
             "method": method,
             "avg_method": avg_method,
             "yf_ticker": yf_ticker,
+            "exchange": resolved_exchange,
         })
     return out
 

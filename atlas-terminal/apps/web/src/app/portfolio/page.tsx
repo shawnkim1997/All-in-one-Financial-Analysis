@@ -25,6 +25,13 @@ interface Position {
   exchange?: string;
 }
 
+interface ExchangeOption {
+  exchange: string;
+  yf_ticker: string;
+  currency: string;
+  default?: boolean;
+}
+
 export default function PortfolioPage() {
   const [positions, setPositions] = useState<Position[]>([]);
   const [form, setForm] = useState({ ticker: "", quantity: "", avg_price: "" });
@@ -41,7 +48,7 @@ export default function PortfolioPage() {
   const [displayCurrency, setDisplayCurrency] = useState("USD");
   const [fxRates, setFxRates] = useState<Record<string, number>>({});
   const [exchangeSelections, setExchangeSelections] = useState<Record<string, string>>({});
-  const [exchangeOptions, setExchangeOptions] = useState<Record<string, { exchange: string; yf_ticker: string; currency: string; default?: boolean }[]>>({});
+  const [exchangeOptions, setExchangeOptions] = useState<Record<string, ExchangeOption[]>>({});
 
   useEffect(() => {
     fetchPortfolio();
@@ -63,7 +70,10 @@ export default function PortfolioPage() {
       const opts = Array.isArray(data?.options) ? data.options : [];
       if (opts.length > 0) {
         setExchangeOptions((prev) => ({ ...prev, [rowKey]: opts }));
-        const def = opts.find((o: { default?: boolean; exchange: string }) => o.default) || opts[0];
+        const def =
+          opts.find((o: ExchangeOption) => o.exchange === pos.exchange) ||
+          opts.find((o: ExchangeOption) => o.default) ||
+          opts[0];
         setExchangeSelections((prev) => ({ ...prev, [rowKey]: def.exchange }));
       }
     });
@@ -435,7 +445,7 @@ export default function PortfolioPage() {
                         {hasMultiple ? (
                           <select
                             className="bg-bg-primary border border-border rounded px-2 py-1 text-xs"
-                            value={exchangeSelections[rowKey] || ""}
+                            value={exchangeSelections[rowKey] || p.exchange || ""}
                             onChange={(e) => handleExchangeChange(i, e.target.value)}
                           >
                             {opts.map((o) => (
@@ -558,13 +568,13 @@ export default function PortfolioPage() {
                           className="w-24 bg-bg-primary border border-accent-blue rounded px-2 py-1"
                         />
                       ) : (
-                        <>${p.avg_price.toFixed(2)}</>
+                        <>{formatCurrencyValue(convertAmount(p.avg_price, srcCostCurrency, displayCurrency), displayCurrency)}</>
                       )}
                     </td>
                     <td className="px-4 py-2.5 font-mono text-text-primary">{formatCurrencyValue(convertAmount(price, srcValueCurrency, displayCurrency), displayCurrency)}</td>
                     <td className="px-4 py-2.5 font-mono text-text-primary">{formatCurrencyValue(value, displayCurrency)}</td>
                     <td className={`px-4 py-2.5 font-mono ${gl >= 0 ? "text-accent-green" : "text-accent-red"}`}>
-                      {gl >= 0 ? "+" : ""}{formatCurrencyValue(Math.abs(gl), displayCurrency)}
+                      {gl >= 0 ? "+" : "-"}{formatCurrencyValue(Math.abs(gl), displayCurrency)}
                     </td>
                     <td className={`px-4 py-2.5 font-mono ${glPct >= 0 ? "text-accent-green" : "text-accent-red"}`}>
                       {glPct >= 0 ? "+" : ""}{glPct.toFixed(1)}%

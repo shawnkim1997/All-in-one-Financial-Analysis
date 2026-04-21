@@ -288,6 +288,8 @@ class PortfolioPosition(BaseModel):
     exchange: str = ""
     source: str = "manual"
     current_price: Optional[float] = None
+    stock_currency: str = ""
+    yf_ticker: str = ""
     market_value: Optional[float] = None
     pnl: Optional[float] = None
     pnl_pct: Optional[float] = None

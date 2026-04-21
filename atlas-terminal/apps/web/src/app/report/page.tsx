@@ -1503,16 +1503,59 @@ export default function ReportPage() {
         .report-section li { margin-left: 16px; list-style: disc; }
 
         @media print {
-          body { background: white !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+          html, body {
+            width: 210mm !important;
+            min-width: 210mm !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            background: white !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
           .no-print, nav, aside, header, [class*="sidebar"], [class*="ticker-bar"], [class*="chat-panel"],
           [class*="app-shell"] > :first-child, [class*="app-shell"] > :last-child { display: none !important; }
           [class*="app-shell"] { display: block !important; }
-          [class*="app-shell"] > :nth-child(2) { margin: 0 !important; padding: 0 !important; width: 100% !important; max-width: 100% !important; }
-          .report-container { max-width: 100% !important; margin: 0 !important; }
-          .report-page { page-break-after: always; page-break-inside: avoid; margin: 0; padding: 28px 36px; border-radius: 0; }
-          .cover-page { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-          .report-section { page-break-inside: avoid; }
-          @page { size: A4; margin: 12mm 10mm; }
+          [class*="app-shell"] > :nth-child(2) {
+            margin: 0 !important;
+            padding: 0 !important;
+            width: 210mm !important;
+            max-width: 210mm !important;
+            min-width: 210mm !important;
+            background: white !important;
+          }
+          .report-container {
+            width: 210mm !important;
+            max-width: 210mm !important;
+            min-width: 210mm !important;
+            margin: 0 !important;
+            padding: 0 !important;
+          }
+          .report-page {
+            box-sizing: border-box !important;
+            width: 210mm !important;
+            min-height: 297mm !important;
+            page-break-after: always;
+            break-after: page;
+            page-break-inside: avoid;
+            break-inside: avoid;
+            margin: 0 !important;
+            padding: 8mm 10mm 9mm !important;
+            border-radius: 0 !important;
+            overflow: hidden !important;
+          }
+          .report-page:last-child {
+            page-break-after: auto;
+            break-after: auto;
+          }
+          .cover-page {
+            min-height: 297mm !important;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+          }
+          .report-section { page-break-inside: avoid; break-inside: avoid; }
+          @page { size: A4 portrait; margin: 0; }
         }
       `}</style>
     </>

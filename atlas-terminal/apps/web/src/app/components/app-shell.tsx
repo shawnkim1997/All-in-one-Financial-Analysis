@@ -1,8 +1,12 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { useEffect } from "react";
+import { usePathname } from "next/navigation";
 import { TickerBar } from "./ticker-bar";
 import { ChatPanel } from "./chat-panel";
+import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
+import { terminalPageFromPathname, useTerminal } from "@/stores/terminal";
 
 /**
  * Sidebar uses usePathname(). In Next App Router, if SSR output and client first paint
@@ -24,6 +28,14 @@ const SidebarClient = dynamic(
 );
 
 export function AppShell({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const setActivePage = useTerminal((state) => state.setActivePage);
+  useKeyboardShortcuts();
+
+  useEffect(() => {
+    setActivePage(terminalPageFromPathname(pathname));
+  }, [pathname, setActivePage]);
+
   return (
     <>
       <TickerBar />

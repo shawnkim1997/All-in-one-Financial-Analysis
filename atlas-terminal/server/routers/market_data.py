@@ -1,9 +1,12 @@
 """Market Data router -- sector info, financial trends, comps, health metrics."""
 
+import asyncio
 import logging
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, Query
+from server.core import flags as core_flags
+from server.core.factory import get_data_gateway
 from server.utils.ticker_utils import AssetType, detect_asset_type
 
 router = APIRouter()
@@ -101,6 +104,17 @@ async def market_overview_by_ticker(ticker: str):
     except Exception as e:
         logger.exception("overview/%s failed", ticker)
         return {"error": str(e), "asset_type": AssetType.EQUITY.value, "data": None}
+
+
+@router.get("/asset-type/{ticker}", summary="Lightweight asset type detection")
+async def asset_type_by_ticker(ticker: str):
+    """Return only the detected asset type without building the full overview payload."""
+    try:
+        asset_type = await asyncio.to_thread(detect_asset_type, ticker)
+        return {"ticker": ticker.upper(), "asset_type": asset_type.value}
+    except Exception as e:
+        logger.exception("asset-type/%s failed", ticker)
+        return {"error": str(e), "ticker": ticker.upper(), "asset_type": AssetType.EQUITY.value}
 
 
 @router.get("/etf/{ticker}/holdings", summary="ETF top holdings")
@@ -479,6 +493,18 @@ async def piotroski_score(ticker: str):
 @router.get("/quote/{ticker}", summary="Quick quote: price and session change %")
 async def quick_quote(ticker: str):
     """Used for news headline ticker mentions (day session move)."""
+    if core_flags.new_data_gateway_enabled():
+        try:
+            quote = await get_data_gateway().quote(ticker)
+            return {
+                "ticker": ticker.upper(),
+                "current_price": quote.price,
+                "change_pct": round(quote.change_pct, 2) if quote.change_pct is not None else None,
+            }
+        except Exception:
+            logger.exception("quote/%s gateway failed", ticker)
+            return {"ticker": ticker.upper(), "current_price": None, "change_pct": None}
+
     try:
         import yfinance as yf
 

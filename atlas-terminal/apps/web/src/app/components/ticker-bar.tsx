@@ -1,6 +1,7 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { Dot } from "lucide-react";
+import { useApi } from "../lib/use-api";
 
 interface IndexData {
   label: string;
@@ -17,29 +18,17 @@ const INDICES = [
   { label: "BTC", symbol: "BTC-USD" },
 ];
 
+const DEFAULT_INDICES: IndexData[] = INDICES.map((i) => ({ ...i, price: "—", change: "—", positive: true }));
+
 export function TickerBar() {
-  const [data, setData] = useState<IndexData[]>(
-    INDICES.map((i) => ({ ...i, price: "—", change: "—", positive: true }))
-  );
+  const indices = useApi<IndexData[]>("/api/market/indices", { cacheTtlMs: 60_000 });
 
   useEffect(() => {
-    async function load() {
-      try {
-        const res = await fetch(`/api/market/indices`);
-        if (res.ok) {
-          const json = await res.json();
-          if (Array.isArray(json)) {
-            setData(json);
-          }
-        }
-      } catch {
-        // keep defaults
-      }
-    }
-    load();
-    const iv = setInterval(load, 60_000);
+    const iv = setInterval(indices.refetch, 60_000);
     return () => clearInterval(iv);
-  }, []);
+  }, [indices.refetch]);
+
+  const data = Array.isArray(indices.data) ? indices.data : DEFAULT_INDICES;
 
   return (
     <header className="fixed left-0 right-0 top-0 z-50 flex h-[56px] items-center gap-4 border-b border-border bg-surface-raised px-5 shadow-card">

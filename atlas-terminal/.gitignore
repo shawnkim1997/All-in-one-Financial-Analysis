@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local env
+.env
+.env.local
+
+# Frontend
+apps/web/node_modules/
+apps/web/.next/
+apps/web/.next-dev/
+apps/web/out/
+apps/web/test-results/
+apps/web/playwright-report/
+
+# Local databases and personal data exports
+server/data/*.db
+server/data/*.db-*
+data/
+
+# macOS
+.DS_Store

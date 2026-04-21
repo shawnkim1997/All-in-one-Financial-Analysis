@@ -131,7 +131,7 @@ export function WaterfallWidget({ steps }: { steps: WaterfallStep[] }) {
         }}
         labelSkipWidth={12}
         labelSkipHeight={12}
-        labelTextColor={chartPalette.text}
+        labelTextColor={chartPalette.canvas}
         theme={barTheme}
         tooltip={({ value, indexValue }) => (
           <div className="px-2 py-1 text-xs">
