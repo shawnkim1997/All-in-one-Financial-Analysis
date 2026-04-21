@@ -101,8 +101,36 @@ npm run e2e
 - Backend: [http://127.0.0.1:8000](http://127.0.0.1:8000)
 - API docs: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
 
+## Secure Credential Storage
+
+Server-side broker/API credentials are stored with envelope encryption. The master key must live in the environment and is never written to SQLite/PostgreSQL.
+
+Generate a local master key:
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+Then set it in `.env`:
+
+```bash
+ATLAS_MASTER_KEY=your-generated-value
+```
+
+Credential tables:
+
+- `user_credentials`: encrypted provider blobs keyed by `user_id` and `provider`
+- `credential_access_log`: audit trail for store/status/delete/decrypt attempts
+
+Credential API:
+
+- `PUT /api/credentials/{provider}` stores a secret after envelope encryption
+- `GET /api/credentials/{provider}/status` returns only metadata, never the secret
+- `DELETE /api/credentials/{provider}` removes the encrypted credential
+
 ## Recent Work
 
+- Phase 3 security hardening: AES-GCM envelope encryption, credential tables, credential access audit logs, and `ATLAS_MASTER_KEY` documentation for future KIS/IBKR key storage
 - v2 refactor foundation: baseline measurements in `docs/baseline-2026-04.md`, CI workflow, pytest smoke tests, and Playwright route smoke tests
 - Data Gateway scaffold: typed `DataGateway` contract, chained providers, TTL cache wrapper, provider metrics, and a flag-gated `/api/market/quote/{ticker}` migration path via `ATLAS_FLAG_GATEWAY=true`
 - Central terminal state: Zustand-backed `useTerminal` store for active symbol, page context, recent symbols, watchlist, currency, theme, layouts, and Copilot context

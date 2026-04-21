@@ -107,6 +107,32 @@ async def init_db() -> None:
         """
     )
 
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS user_credentials (
+            user_id        TEXT NOT NULL,
+            provider       TEXT NOT NULL,
+            encrypted_blob BLOB NOT NULL,
+            created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+            last_used_at   TEXT,
+            PRIMARY KEY (user_id, provider)
+        )
+        """
+    )
+
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS credential_access_log (
+            user_id  TEXT,
+            provider TEXT,
+            action   TEXT,
+            ip       TEXT,
+            ua       TEXT,
+            at       TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+        """
+    )
+
     await db.commit()
 
 

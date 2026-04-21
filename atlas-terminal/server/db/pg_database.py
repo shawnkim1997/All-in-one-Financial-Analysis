@@ -99,9 +99,32 @@ async def init_pg_tables() -> None:
                 expires_at TIMESTAMPTZ
             );
         """)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS user_credentials (
+                user_id TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                encrypted_blob BYTEA NOT NULL,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                last_used_at TIMESTAMPTZ,
+                PRIMARY KEY (user_id, provider)
+            );
+        """)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS credential_access_log (
+                user_id TEXT,
+                provider TEXT,
+                action TEXT,
+                ip TEXT,
+                ua TEXT,
+                at TIMESTAMPTZ DEFAULT NOW()
+            );
+        """)
         # Index for cache expiry cleanup
         await conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_cache_expires ON cache(expires_at);
+        """)
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_credential_access_log_at ON credential_access_log(at);
         """)
         logger.info("PostgreSQL tables initialized.")
 

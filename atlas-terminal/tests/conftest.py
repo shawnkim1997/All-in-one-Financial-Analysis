@@ -1,6 +1,7 @@
 """Shared pytest fixtures for ATLAS Terminal test suite."""
 
 import sys
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,18 @@ if str(_PROJECT_ROOT) not in sys.path:
 def sample_ticker():
     """A well-known US ticker for integration-style tests."""
     return "AAPL"
+
+
+@pytest.fixture(autouse=True)
+def isolated_sqlite_db(tmp_path, monkeypatch):
+    """Keep tests away from the user's local SQLite database."""
+    from server.db import database
+
+    asyncio.run(database.close_db())
+    monkeypatch.setattr(database, "_DB_DIR", tmp_path)
+    monkeypatch.setattr(database, "_DB_PATH", str(tmp_path / "atlas-test.db"))
+    yield
+    asyncio.run(database.close_db())
 
 
 @pytest.fixture
