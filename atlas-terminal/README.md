@@ -1,6 +1,6 @@
 # ATLAS Terminal
 
-[![CI](https://github.com/shawnkim1997/10-K-summariser-project/actions/workflows/ci.yml/badge.svg)](https://github.com/shawnkim1997/10-K-summariser-project/actions/workflows/ci.yml)
+[![CI](https://github.com/shawnkim1997/All-in-one-Financial-Analysis/actions/workflows/ci.yml/badge.svg)](https://github.com/shawnkim1997/All-in-one-Financial-Analysis/actions/workflows/ci.yml)
 
 Institutional-style equity research terminal built with Next.js 14 and FastAPI.
 
