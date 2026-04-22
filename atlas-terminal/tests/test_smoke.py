@@ -10,6 +10,7 @@ from server.main import app
 EXPECTED_PREFIXES = [
     "/api/analysis",
     "/api/chat",
+    "/api/calendar",
     "/api/crypto",
     "/api/copilot",
     "/api/credentials",
@@ -159,3 +160,15 @@ def test_transcript_delta_degrades_without_fmp_key(monkeypatch) -> None:
 
     assert response.status_code == 200
     assert response.json()["available"] is False
+
+
+def test_calendar_degrades_without_fmp_key(monkeypatch) -> None:
+    monkeypatch.delenv("FMP_API_KEY", raising=False)
+
+    with TestClient(app) as client:
+        response = client.get("/api/calendar/economic")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["available"] is False
+    assert data["grouped"] == {}

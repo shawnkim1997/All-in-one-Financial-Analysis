@@ -140,6 +140,20 @@ async def fetch_economic_calendar(
     return None
 
 
+async def fetch_earning_calendar(
+    date_from: str,
+    date_to: str,
+) -> Optional[List[Dict[str, Any]]]:
+    """FMP earnings calendar between two ISO dates (requires API key)."""
+    data = await _fmp_get_json(
+        "/earning_calendar",
+        {"from": date_from, "to": date_to},
+    )
+    if isinstance(data, list):
+        return data
+    return None
+
+
 async def fetch_earning_call_transcript(
     ticker: str,
     year: int,
