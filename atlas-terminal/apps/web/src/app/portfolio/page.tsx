@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { AlertTriangle, Check, CheckCircle2, CircleX, Pencil, Trash2 } from "lucide-react";
 import { CorrelationMatrix } from "../components/portfolio/CorrelationMatrix";
+import { flags } from "../lib/flags";
 
 interface Position {
   id?: string;
@@ -298,16 +299,23 @@ export default function PortfolioPage() {
     <div>
       <div className="portfolio-header">
         <h1 className="text-2xl font-bold">Portfolio</h1>
-        <div className="currency-toggle">
-          {["USD", "GBP", "KRW", "EUR", "JPY"].map((cur) => (
-            <button
-              key={cur}
-              className={`currency-btn ${displayCurrency === cur ? "active" : ""}`}
-              onClick={() => setDisplayCurrency(cur)}
-            >
-              {getCurrencySymbol(cur)} {cur}
-            </button>
-          ))}
+        <div className="flex flex-wrap items-center gap-2">
+          {flags.cgt && (
+            <a href="/portfolio/tax" className="rounded border border-brand-gold bg-brand-gold/15 px-3 py-2 text-xs font-semibold text-brand-navy hover:bg-brand-gold/25">
+              UK CGT
+            </a>
+          )}
+          <div className="currency-toggle">
+            {["USD", "GBP", "KRW", "EUR", "JPY"].map((cur) => (
+              <button
+                key={cur}
+                className={`currency-btn ${displayCurrency === cur ? "active" : ""}`}
+                onClick={() => setDisplayCurrency(cur)}
+              >
+                {getCurrencySymbol(cur)} {cur}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 

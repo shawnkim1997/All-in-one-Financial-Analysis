@@ -33,6 +33,7 @@ EXPECTED_PREFIXES = [
     "/api/research",
     "/api/screener",
     "/api/technical",
+    "/api/tax",
     "/api/valuation",
 ]
 
@@ -259,3 +260,25 @@ def test_portfolio_correlation_uses_gateway_history(monkeypatch) -> None:
     assert data["available"] is True
     assert data["tickers"] == ["AAA", "BBB"]
     assert data["matrix"][0][0] == 1.0
+
+
+def test_uk_cgt_calculator_uses_portfolio_positions(monkeypatch) -> None:
+    from server.routers import tax
+
+    monkeypatch.setattr(
+        tax,
+        "_load_positions",
+        lambda: [
+            {"ticker": "AAPL", "quantity": 10, "avg_price": 100, "currency": "USD"},
+        ],
+    )
+    monkeypatch.setattr(tax, "_get_current_quote", lambda ticker, exchange="": {"price": 200, "currency": "USD"})
+
+    with TestClient(app) as client:
+        response = client.get("/api/tax/uk/cgt/local?income_band=higher")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total_unrealized_gain_gbp"] == 800.0
+    assert data["tax_if_sold_all"] == 0.0
+    assert data["positions"][0]["ticker"] == "AAPL"
