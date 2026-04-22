@@ -14,11 +14,12 @@ def test_default_quarter_pair_uses_completed_quarter() -> None:
 
 def test_tokenize_and_normalize_removes_common_call_words() -> None:
     tokens = tokenize_and_normalize("Thank you operator. Sovereign AI demand was strong, strong, strong.")
+    lemmas = [token.lemma for token in tokens]
 
-    assert "thank" not in tokens
-    assert "operator" not in tokens
-    assert "sovereign" in tokens
-    assert tokens.count("strong") == 3
+    assert "thank" not in lemmas
+    assert "operator" not in lemmas
+    assert "sovereign" in lemmas
+    assert lemmas.count("strong") == 3
 
 
 def test_compute_delta_surfaces_new_removed_and_emphasis_phrases() -> None:
@@ -41,3 +42,5 @@ def test_compute_delta_surfaces_new_removed_and_emphasis_phrases() -> None:
     assert any(row["phrase"] == "sovereign ai" for row in delta["new_phrases"])
     assert any(row["phrase"] == "inventory correction" for row in delta["removed_phrases"])
     assert any(row["phrase"] == "data center" for row in delta["emphasis_shift"])
+    assert any(row["topic"] == "AI / Data Centre" for row in delta["topic_shift"])
+    assert "delta" in delta["tone_shift"]

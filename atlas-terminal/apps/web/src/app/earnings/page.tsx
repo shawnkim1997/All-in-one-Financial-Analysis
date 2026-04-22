@@ -38,8 +38,15 @@ interface TranscriptDeltaData {
   previous?: { year: number; quarter: number };
   new_phrases?: { phrase: string; count: number }[];
   removed_phrases?: { phrase: string; previous_count: number }[];
-  emphasis_shift?: { phrase: string; current_count: number; previous_count: number; delta: number }[];
-  tone_shift?: { current_score: number; previous_score: number };
+  emphasis_shift?: { phrase: string; current_count: number; previous_count: number; delta: number; score?: number }[];
+  tone_shift?: {
+    current_score: number;
+    previous_score: number;
+    delta?: number;
+    current_label?: string;
+    previous_label?: string;
+  };
+  topic_shift?: { topic: string; current_count: number; previous_count: number; delta: number }[];
   narrative?: {
     key_shifts?: string[];
     what_it_means?: string;
@@ -280,6 +287,11 @@ function TranscriptDeltaPanel({ data }: { data: TranscriptDeltaData }) {
             <div className="font-mono text-sm text-brand-navy">
               {data.tone_shift.previous_score.toFixed(1)} → {data.tone_shift.current_score.toFixed(1)}
             </div>
+            {data.tone_shift.current_label && (
+              <div className="mt-0.5 text-[10px] uppercase tracking-[0.12em] text-text-muted">
+                {data.tone_shift.previous_label} → {data.tone_shift.current_label}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -321,6 +333,24 @@ function TranscriptDeltaPanel({ data }: { data: TranscriptDeltaData }) {
         </div>
       </div>
 
+      {data.topic_shift && data.topic_shift.length > 0 && (
+        <div className="mt-4 rounded border border-border bg-surface-raised p-4">
+          <div className="text-[11px] uppercase tracking-[0.12em] text-brand-navy font-semibold mb-3">Topic Shift</div>
+          <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3">
+            {data.topic_shift.slice(0, 6).map((row) => (
+              <div key={row.topic} className="rounded border border-border bg-surface-sunken px-3 py-2">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="truncate text-sm text-text-secondary">{row.topic}</span>
+                  <span className={`font-mono text-xs ${row.delta >= 0 ? "text-fin-positive" : "text-fin-negative"}`}>
+                    {row.previous_count} → {row.current_count}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {data.narrative && (
         <div className="mt-4 border-l-4 border-brand-gold bg-brand-gold/10 p-4">
           <div className="text-[11px] uppercase tracking-[0.12em] text-brand-navy font-semibold mb-2">AI Interpretation</div>
@@ -334,6 +364,16 @@ function TranscriptDeltaPanel({ data }: { data: TranscriptDeltaData }) {
             </div>
           )}
           <p className="text-sm leading-relaxed text-text-primary">{data.narrative.what_it_means}</p>
+          {data.narrative.questions_to_ask && data.narrative.questions_to_ask.length > 0 && (
+            <div className="mt-3">
+              <div className="mb-1 text-[11px] uppercase tracking-[0.12em] text-brand-navy font-semibold">Questions for next call</div>
+              <ul className="space-y-1 text-sm text-text-secondary">
+                {data.narrative.questions_to_ask.slice(0, 3).map((question) => (
+                  <li key={question}>› {question}</li>
+                ))}
+              </ul>
+            </div>
+          )}
           {data.narrative.variant_view && <p className="mt-2 text-sm text-text-secondary">Variant view: {data.narrative.variant_view}</p>}
         </div>
       )}

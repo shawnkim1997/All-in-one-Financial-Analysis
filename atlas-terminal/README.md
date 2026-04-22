@@ -130,7 +130,7 @@ Credential API:
 
 ## Recent Work
 
-- Phase 5 earnings-call delta MVP: FMP transcript pair lookup, deterministic new/faded/emphasis phrase analysis, tone shift scoring, and best-effort AI narrative on the Earnings page
+- Phase 5 earnings-call delta: FMP transcript pair lookup, rule-based lemmatisation, bigram/trigram TF-IDF phrase ranking, finance-topic shift detection, tone shift scoring, and best-effort Claude/Gemini narrative on the Earnings page
 - Phase 4 peer comparison: gateway-backed peer discovery, parallel fundamentals matrix, percentile-colored valuation/quality cells, and backward-compatible `/api/market/peers/{ticker}` responses for overview/report flows
 - Phase 3 security hardening: AES-GCM envelope encryption, credential tables, credential access audit logs, and `ATLAS_MASTER_KEY` documentation for future KIS/IBKR key storage
 - v2 refactor foundation: baseline measurements in `docs/baseline-2026-04.md`, CI workflow, pytest smoke tests, and Playwright route smoke tests

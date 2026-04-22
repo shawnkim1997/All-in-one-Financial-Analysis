@@ -6,8 +6,10 @@ No Streamlit dependencies.
 """
 
 import json
+import os
 import re
 import time
+import asyncio
 from typing import Any, Dict, Generator, List, Optional
 
 from server.utils.safe_float import _safe_float
@@ -36,6 +38,30 @@ def get_gemini_model(api_key: str) -> Any:
     import google.generativeai as genai
     genai.configure(api_key=api_key)
     return genai.GenerativeModel(GEMINI_MODEL)
+
+
+async def generate_text(prompt: str, temperature: float = 0.3, max_tokens: int = 1200) -> str:
+    """Async convenience wrapper used by lightweight best-effort AI features.
+
+    It reads a server-side Gemini key from the environment.  Browser-local keys
+    are intentionally not pulled in here because routers should not receive API
+    secrets implicitly from localStorage.
+    """
+
+    api_key = (os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY") or "").strip()
+    if not api_key:
+        raise RuntimeError("GOOGLE_API_KEY or GEMINI_API_KEY is not configured")
+
+    def _run() -> str:
+        model = get_gemini_model(api_key)
+        response = _generate_with_retry(
+            model,
+            prompt,
+            {"temperature": temperature, "max_output_tokens": max_tokens},
+        )
+        return (response.text or "").strip()
+
+    return await asyncio.to_thread(_run)
 
 
 # ---------------------------------------------------------------------------
