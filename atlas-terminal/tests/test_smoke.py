@@ -1,9 +1,11 @@
 """Smoke tests that keep the FastAPI shell safe during refactors."""
 
+from datetime import date, timedelta
+
 from fastapi.testclient import TestClient
 
 from server.core.providers.base import DataUnavailable
-from server.core.data_gateway import Fundamentals, HoldersData, Profile, Quote
+from server.core.data_gateway import Fundamentals, HoldersData, OHLCV, OHLCVBar, Profile, Quote
 from server.main import app
 
 
@@ -224,3 +226,36 @@ def test_ownership_endpoint_normalizes_gateway_rows(monkeypatch) -> None:
     assert data["institutional_pct"] == 12.0
     assert data["institutions"][0]["name"] == "Vanguard"
     assert data["insiders"][0]["name"] == "CEO Example"
+
+
+def test_portfolio_correlation_uses_gateway_history(monkeypatch) -> None:
+    from server.routers import portfolio
+
+    monkeypatch.setattr(
+        portfolio,
+        "_load_positions",
+        lambda: [
+            {"ticker": "AAA", "quantity": 1, "avg_price": 10},
+            {"ticker": "BBB", "quantity": 1, "avg_price": 10},
+        ],
+    )
+
+    class FakeGateway:
+        async def history(self, ticker: str, range_key: str = "3mo") -> OHLCV:
+            base = 10 if ticker == "AAA" else 20
+            bars = [
+                OHLCVBar(date=date(2026, 1, 1) + timedelta(days=idx), open=None, high=None, low=None, close=base + idx)
+                for idx in range(5)
+            ]
+            return OHLCV(symbol=ticker, range=range_key, bars=bars, source="fake")
+
+    monkeypatch.setattr(portfolio, "get_data_gateway", lambda: FakeGateway())
+
+    with TestClient(app) as client:
+        response = client.get("/api/portfolio/correlation?window=90")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["available"] is True
+    assert data["tickers"] == ["AAA", "BBB"]
+    assert data["matrix"][0][0] == 1.0

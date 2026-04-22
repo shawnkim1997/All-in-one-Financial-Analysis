@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { AlertTriangle, Check, CheckCircle2, CircleX, Pencil, Trash2 } from "lucide-react";
+import { CorrelationMatrix } from "../components/portfolio/CorrelationMatrix";
 
 interface Position {
   id?: string;
@@ -327,6 +328,8 @@ export default function PortfolioPage() {
           </div>
         </div>
       </div>
+
+      <CorrelationMatrix />
 
       {/* Add Position */}
       <div className="bg-bg-card border border-border rounded-lg p-4 mb-6">

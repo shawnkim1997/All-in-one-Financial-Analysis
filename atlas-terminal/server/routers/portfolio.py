@@ -10,9 +10,10 @@ from threading import Lock
 from typing import List
 
 import logging
-from fastapi import APIRouter, HTTPException, UploadFile, File, Header
+from fastapi import APIRouter, HTTPException, UploadFile, File, Header, Query
 from pydantic import BaseModel, Field
 
+from server.core.factory import get_data_gateway
 from server.models.schemas import (
     PortfolioPosition,
     PortfolioPositionCreate,
@@ -99,6 +100,67 @@ def _get_current_quote(ticker: str, exchange: str = "") -> dict:
 async def _get_current_quote_async(ticker: str, exchange: str, semaphore: asyncio.Semaphore) -> dict:
     async with semaphore:
         return await asyncio.to_thread(_get_current_quote, ticker, exchange)
+
+
+def _history_range_for_window(window: int) -> str:
+    if window <= 31:
+        return "1mo"
+    if window <= 100:
+        return "3mo"
+    if window <= 190:
+        return "6mo"
+    return "1y"
+
+
+def _resolved_history_symbol(position: dict) -> str:
+    try:
+        from server.services.exchange_resolver import resolve_exchange_option
+
+        ticker = str(position.get("ticker", "")).upper()
+        option = resolve_exchange_option(ticker, str(position.get("exchange", "")) or None) or {}
+        return str(option.get("yf_ticker") or ticker).upper()
+    except Exception:
+        return str(position.get("ticker", "")).upper()
+
+
+def _daily_returns_from_bars(bars: list) -> dict[str, float]:
+    closes: list[tuple[str, float]] = []
+    for bar in bars:
+        close = getattr(bar, "close", None)
+        day = getattr(bar, "date", None)
+        if close is None or day is None:
+            continue
+        try:
+            closes.append((str(day), float(close)))
+        except (TypeError, ValueError):
+            continue
+    closes.sort(key=lambda item: item[0])
+    returns: dict[str, float] = {}
+    for idx in range(1, len(closes)):
+        prev = closes[idx - 1][1]
+        curr = closes[idx][1]
+        if prev:
+            returns[closes[idx][0]] = (curr - prev) / prev
+    return returns
+
+
+def _pairwise_corr(a: dict[str, float], b: dict[str, float]) -> float | None:
+    common = sorted(set(a).intersection(b))
+    if len(common) < 2:
+        return None
+    xs = [a[day] for day in common]
+    ys = [b[day] for day in common]
+    if len(set(xs)) <= 1 or len(set(ys)) <= 1:
+        return None
+    try:
+        import numpy as np
+
+        value = float(np.corrcoef(xs, ys)[0, 1])
+        if value != value:
+            return None
+        return round(value, 3)
+    except Exception:
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -300,6 +362,78 @@ async def portfolio_risk():
         return result
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Risk metrics failed: {exc}") from exc
+
+
+@router.get("/correlation", summary="Cross-asset correlation matrix")
+async def portfolio_correlation(
+    user_id: str = "local",
+    window: int = Query(90, ge=20, le=365),
+):
+    """Compute pairwise daily-return correlations for current portfolio positions."""
+    try:
+        positions = _load_positions()
+        symbols = []
+        for position in positions:
+            ticker = str(position.get("ticker", "")).upper()
+            if ticker and ticker not in symbols:
+                symbols.append(ticker)
+        if len(symbols) < 2:
+            return {
+                "user_id": user_id,
+                "available": False,
+                "message": "Add at least two positions to compute correlation.",
+                "window": window,
+                "tickers": symbols,
+                "matrix": [],
+            }
+
+        gateway = get_data_gateway()
+        range_key = _history_range_for_window(window)
+        by_ticker = {str(p.get("ticker", "")).upper(): p for p in positions if p.get("ticker")}
+        semaphore = asyncio.Semaphore(5)
+
+        async def fetch_history(ticker: str):
+            async with semaphore:
+                symbol = _resolved_history_symbol(by_ticker[ticker])
+                try:
+                    return ticker, await gateway.history(symbol, range_key)
+                except Exception:
+                    logger.exception("correlation history failed for %s", ticker)
+                    return ticker, None
+
+        histories = await asyncio.gather(*[fetch_history(ticker) for ticker in symbols])
+        returns_by_ticker = {
+            ticker: _daily_returns_from_bars(history.bars)
+            for ticker, history in histories
+            if history is not None and getattr(history, "bars", None)
+        }
+        usable = [ticker for ticker in symbols if ticker in returns_by_ticker]
+        if len(usable) < 2:
+            return {
+                "user_id": user_id,
+                "available": False,
+                "message": "Not enough price history to compute correlation.",
+                "window": window,
+                "tickers": usable,
+                "matrix": [],
+            }
+
+        matrix = []
+        for left in usable:
+            row = []
+            for right in usable:
+                row.append(1.0 if left == right else _pairwise_corr(returns_by_ticker[left], returns_by_ticker[right]))
+            matrix.append(row)
+        return {
+            "user_id": user_id,
+            "available": True,
+            "window": window,
+            "range": range_key,
+            "tickers": usable,
+            "matrix": matrix,
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Correlation matrix failed: {exc}") from exc
 
 
 @router.get(
