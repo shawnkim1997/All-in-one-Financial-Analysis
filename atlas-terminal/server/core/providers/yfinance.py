@@ -106,6 +106,49 @@ class YFinanceProvider(BaseProvider):
 
         return await self._to_thread(fetch)
 
+    async def financials(self, symbol: str, statement: str = "income", period: str = "annual") -> dict[str, Any]:
+        def fetch() -> dict[str, Any]:
+            import pandas as pd
+
+            normalized = symbol.strip().upper()
+            ticker = self._ticker(normalized)
+            statement_key = statement.strip().lower()
+            quarterly = period.strip().lower().startswith("q")
+            if statement_key == "income":
+                df = ticker.quarterly_income_stmt if quarterly else ticker.income_stmt
+            elif statement_key == "balance":
+                df = ticker.quarterly_balance_sheet if quarterly else ticker.balance_sheet
+            elif statement_key in {"cashflow", "cash_flow"}:
+                df = ticker.quarterly_cashflow if quarterly else ticker.cashflow
+            else:
+                raise ProviderError(f"unsupported statement: {statement}")
+            if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+                raise ProviderError("missing financial statement dataframe")
+            sliced = df.iloc[:, :5]
+            periods = [str(col)[:10] for col in sliced.columns]
+            line_items: dict[str, list[float | None]] = {}
+            for idx, row in sliced.iterrows():
+                values: list[float | None] = []
+                for value in row.tolist():
+                    try:
+                        if pd.isna(value):
+                            values.append(None)
+                        else:
+                            values.append(float(value))
+                    except (TypeError, ValueError):
+                        values.append(None)
+                line_items[str(idx).replace(" ", "")] = values
+            return {
+                "ticker": normalized,
+                "statement": statement_key,
+                "period": "quarter" if quarterly else "annual",
+                "source": self.name,
+                "periods": periods,
+                "line_items": line_items,
+            }
+
+        return await self._to_thread(fetch)
+
     async def history(self, symbol: str, range: str = "1y") -> OHLCV:
         def fetch() -> OHLCV:
             hist = self._ticker(symbol).history(period=range)

@@ -3,7 +3,8 @@
 import logging
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
+from server.core.factory import get_data_gateway
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -57,6 +58,29 @@ def _safe_get(info: Dict[str, Any], key: str) -> Optional[float]:
     except (TypeError, ValueError):
         return None
     return float(val)
+
+
+@router.get(
+    "/{ticker}/table",
+    summary="Gateway-backed financial statement table",
+)
+async def financial_statement_table(
+    ticker: str,
+    statement: str = Query("income", pattern="^(income|balance|cashflow|cash_flow)$"),
+    period: str = Query("annual", pattern="^(annual|quarter)$"),
+) -> Dict[str, Any]:
+    try:
+        return await get_data_gateway().financials(ticker, statement, period)
+    except Exception as exc:
+        logger.warning("financial statement table failed for %s: %s", ticker, exc)
+        return {
+            "ticker": ticker.upper(),
+            "statement": statement,
+            "period": period,
+            "source": "unavailable",
+            "periods": [],
+            "line_items": {},
+        }
 
 
 @router.get(

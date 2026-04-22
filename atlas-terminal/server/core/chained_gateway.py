@@ -57,6 +57,9 @@ class ChainedGateway(DataGateway):
     async def fundamentals(self, symbol: str, period: str = "annual") -> Fundamentals:
         return await self._try(symbol, "fundamentals", lambda provider: provider.fundamentals(symbol, period))
 
+    async def financials(self, symbol: str, statement: str = "income", period: str = "annual") -> dict:
+        return await self._try(symbol, "financials", lambda provider: provider.financials(symbol, statement, period))
+
     async def history(self, symbol: str, range: str = "1y") -> OHLCV:
         return await self._try(symbol, "history", lambda provider: provider.history(symbol, range))
 

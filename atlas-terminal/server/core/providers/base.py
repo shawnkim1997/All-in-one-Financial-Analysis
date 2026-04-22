@@ -55,6 +55,9 @@ class BaseProvider:
     async def fundamentals(self, symbol: str, period: str = "annual") -> Fundamentals:
         raise ProviderNotImplemented(f"{self.name}.fundamentals")
 
+    async def financials(self, symbol: str, statement: str = "income", period: str = "annual") -> dict[str, Any]:
+        raise ProviderNotImplemented(f"{self.name}.financials")
+
     async def history(self, symbol: str, range: str = "1y") -> OHLCV:
         raise ProviderNotImplemented(f"{self.name}.history")
 

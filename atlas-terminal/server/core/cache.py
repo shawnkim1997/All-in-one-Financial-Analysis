@@ -24,6 +24,7 @@ class CachedGateway(DataGateway):
         "quote": 30,
         "profile": 86_400,
         "fundamentals": 43_200,
+        "financials": 43_200,
         "segments": 604_800,
         "history": 300,
         "news": 300,
@@ -63,6 +64,9 @@ class CachedGateway(DataGateway):
 
     async def fundamentals(self, symbol: str, period: str = "annual") -> Fundamentals:
         return await self._cached("fundamentals", (symbol, period), lambda: self.inner.fundamentals(symbol, period))
+
+    async def financials(self, symbol: str, statement: str = "income", period: str = "annual") -> dict[str, Any]:
+        return await self._cached("financials", (symbol, statement, period), lambda: self.inner.financials(symbol, statement, period))
 
     async def history(self, symbol: str, range: str = "1y") -> OHLCV:
         return await self._cached("history", (symbol, range), lambda: self.inner.history(symbol, range))

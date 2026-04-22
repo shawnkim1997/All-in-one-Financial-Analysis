@@ -59,3 +59,39 @@ class FMPProvider(BaseProvider):
 
     async def segments(self, symbol: str) -> list[Segment]:
         raise ProviderNotImplemented("FMP segments parser is planned for Phase 1.4")
+
+    async def financials(self, symbol: str, statement: str = "income", period: str = "annual") -> dict[str, object]:
+        normalized = symbol.strip().upper()
+        statement_key = statement.strip().lower()
+        path_map = {
+            "income": "income-statement",
+            "balance": "balance-sheet-statement",
+            "cashflow": "cash-flow-statement",
+            "cash_flow": "cash-flow-statement",
+        }
+        path = path_map.get(statement_key)
+        if not path:
+            raise ProviderError(f"unsupported statement: {statement}")
+        period_key = "quarter" if period.strip().lower().startswith("q") else "annual"
+        data = await self._get_json(f"/{path}/{normalized}", {"period": period_key, "limit": 5})
+        rows = data if isinstance(data, list) else []
+        if not rows:
+            raise ProviderError("missing financial statement rows")
+        periods = [str(row.get("date") or row.get("calendarYear") or idx) for idx, row in enumerate(rows)]
+        line_items: dict[str, list[float | int | None]] = {}
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            for key, value in row.items():
+                if key in {"date", "symbol", "reportedCurrency", "cik", "fillingDate", "acceptedDate", "calendarYear", "period", "link", "finalLink"}:
+                    continue
+                if isinstance(value, (int, float)) or value is None:
+                    line_items.setdefault(key, []).append(value)
+        return {
+            "ticker": normalized,
+            "statement": statement_key,
+            "period": period_key,
+            "source": self.name,
+            "periods": periods,
+            "line_items": line_items,
+        }

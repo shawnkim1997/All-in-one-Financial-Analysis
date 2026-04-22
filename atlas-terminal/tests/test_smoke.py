@@ -172,3 +172,26 @@ def test_calendar_degrades_without_fmp_key(monkeypatch) -> None:
     data = response.json()
     assert data["available"] is False
     assert data["grouped"] == {}
+
+
+def test_financial_statement_table_uses_gateway(monkeypatch) -> None:
+    from server.routers import financials
+
+    class FakeGateway:
+        async def financials(self, ticker: str, statement: str = "income", period: str = "annual") -> dict:
+            return {
+                "ticker": ticker.upper(),
+                "statement": statement,
+                "period": period,
+                "source": "fake",
+                "periods": ["2025", "2024"],
+                "line_items": {"revenue": [120.0, 100.0]},
+            }
+
+    monkeypatch.setattr(financials, "get_data_gateway", lambda: FakeGateway())
+
+    with TestClient(app) as client:
+        response = client.get("/api/financials/AAPL/table?statement=income&period=annual")
+
+    assert response.status_code == 200
+    assert response.json()["line_items"]["revenue"] == [120.0, 100.0]
