@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from server.core.data_gateway import Profile, Quote, Segment
+from server.core.data_gateway import HoldersData, Profile, Quote, Segment
 from server.core.providers.base import BaseProvider, ProviderError, ProviderNotConfigured, ProviderNotImplemented
 from server.services import fmp_client
 
@@ -95,3 +95,26 @@ class FMPProvider(BaseProvider):
             "periods": periods,
             "line_items": line_items,
         }
+
+    async def holders(self, symbol: str) -> HoldersData:
+        normalized = symbol.strip().upper()
+        inst: object = []
+        insider: object = []
+        try:
+            inst = await self._get_json(f"/institutional-holder/{normalized}", {})
+        except ProviderError:
+            inst = []
+        try:
+            insider = await self._get_json("/insider-trading", {"symbol": normalized, "limit": 25})
+        except ProviderError:
+            insider = []
+        institutions = inst if isinstance(inst, list) else []
+        insiders = insider if isinstance(insider, list) else []
+        if not institutions and not insiders:
+            raise ProviderError("missing holders rows")
+        return HoldersData(
+            symbol=normalized,
+            institutions=institutions[:25],
+            insiders=insiders[:25],
+            source=self.name,
+        )

@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from server.core.data_gateway import Fundamentals, OHLCV, OHLCVBar, Profile, Quote
+from server.core.data_gateway import Fundamentals, HoldersData, OHLCV, OHLCVBar, Profile, Quote
 from server.core.providers.base import BaseProvider, ProviderError
 from server.utils.peer_universe import peer_symbols_for_profile
 
@@ -146,6 +146,24 @@ class YFinanceProvider(BaseProvider):
                 "periods": periods,
                 "line_items": line_items,
             }
+
+        return await self._to_thread(fetch)
+
+    async def holders(self, symbol: str) -> HoldersData:
+        def fetch() -> HoldersData:
+            import pandas as pd
+
+            normalized = symbol.strip().upper()
+            ticker = self._ticker(normalized)
+            institutions: list[dict[str, Any]] = []
+            insiders: list[dict[str, Any]] = []
+            inst_df = getattr(ticker, "institutional_holders", None)
+            if isinstance(inst_df, pd.DataFrame) and not inst_df.empty:
+                institutions = inst_df.where(inst_df.notna(), None).to_dict(orient="records")
+            insider_df = getattr(ticker, "insider_roster_holders", None)
+            if isinstance(insider_df, pd.DataFrame) and not insider_df.empty:
+                insiders = insider_df.where(insider_df.notna(), None).to_dict(orient="records")
+            return HoldersData(symbol=normalized, institutions=institutions[:25], insiders=insiders[:25], source=self.name)
 
         return await self._to_thread(fetch)
 

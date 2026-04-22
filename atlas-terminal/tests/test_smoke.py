@@ -3,7 +3,7 @@
 from fastapi.testclient import TestClient
 
 from server.core.providers.base import DataUnavailable
-from server.core.data_gateway import Fundamentals, Profile, Quote
+from server.core.data_gateway import Fundamentals, HoldersData, Profile, Quote
 from server.main import app
 
 
@@ -195,3 +195,32 @@ def test_financial_statement_table_uses_gateway(monkeypatch) -> None:
 
     assert response.status_code == 200
     assert response.json()["line_items"]["revenue"] == [120.0, 100.0]
+
+
+def test_ownership_endpoint_normalizes_gateway_rows(monkeypatch) -> None:
+    from server.routers import market_data
+
+    class FakeGateway:
+        async def holders(self, ticker: str) -> HoldersData:
+            return HoldersData(
+                symbol=ticker.upper(),
+                institutions=[
+                    {"Holder": "Vanguard", "Shares": 1000, "pctHeld": 0.12, "Value": 250000, "Change": 25},
+                ],
+                insiders=[
+                    {"Name": "CEO Example", "Shares Owned Directly": 100, "change": -5},
+                ],
+                source="fake",
+            )
+
+    monkeypatch.setattr(market_data, "get_data_gateway", lambda: FakeGateway())
+
+    with TestClient(app) as client:
+        response = client.get("/api/market/ownership/NVDA")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["available"] is True
+    assert data["institutional_pct"] == 12.0
+    assert data["institutions"][0]["name"] == "Vanguard"
+    assert data["insiders"][0]["name"] == "CEO Example"

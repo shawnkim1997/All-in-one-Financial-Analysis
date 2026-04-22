@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import math
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, Query
@@ -22,6 +23,79 @@ def _safe_float(val, default=0.0):
         return default if math.isnan(f) or math.isinf(f) else f
     except (TypeError, ValueError):
         return default
+
+
+def _json_safe(value: Any) -> Any:
+    """Convert provider rows into JSON-safe values without importing pandas here."""
+    if value is None:
+        return None
+    if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
+        return None
+    if isinstance(value, (str, int, float, bool)):
+        return value
+    if hasattr(value, "isoformat"):
+        try:
+            return value.isoformat()
+        except Exception:
+            return str(value)
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    return str(value)
+
+
+def _pick(row: dict[str, Any], keys: list[str]) -> Any:
+    lower = {str(key).lower(): value for key, value in row.items()}
+    for key in keys:
+        if key in row and row[key] not in (None, ""):
+            return row[key]
+        val = lower.get(key.lower())
+        if val not in (None, ""):
+            return val
+    return None
+
+
+def _pct_value(value: Any) -> float | None:
+    pct = _safe_float(value, None)
+    if pct is None:
+        return None
+    normalized = pct * 100 if abs(pct) <= 1 else pct
+    return max(0.0, min(100.0, normalized))
+
+
+def _normalize_holder_rows(rows: list[dict[str, Any]], kind: str) -> list[dict[str, Any]]:
+    normalized = []
+    for raw_row in rows[:25]:
+        if not isinstance(raw_row, dict):
+            continue
+        row = _json_safe(raw_row)
+        if not isinstance(row, dict):
+            continue
+        name = _pick(row, ["holder", "Holder", "name", "Name", "investorName", "reportingName", "filingName"])
+        shares = _safe_float(_pick(row, ["shares", "Shares", "sharesHeld", "securitiesOwned", "Shares Owned Directly"]), None)
+        pct = _pct_value(_pick(row, ["pctHeld", "percent", "ownershipPercentage", "weightPercent", "% Out"]))
+        change = _safe_float(_pick(row, ["change", "Change", "transactionShares", "changeInShares"]), None)
+        value = _safe_float(_pick(row, ["value", "Value", "marketValue"]), None)
+        normalized.append(
+            {
+                "name": str(name) if name else "Unknown holder",
+                "shares": shares,
+                "pct": pct,
+                "change": change,
+                "value": value,
+                "kind": kind,
+                "raw": row,
+            }
+        )
+    return normalized
+
+
+def _sum_pct(rows: list[dict[str, Any]]) -> float | None:
+    values = [row.get("pct") for row in rows if isinstance(row.get("pct"), (int, float))]
+    if not values:
+        return None
+    return round(min(100.0, sum(float(value) for value in values)), 2)
 
 
 @router.get("/indices", summary="Major market indices")
@@ -255,6 +329,48 @@ async def peer_valuation_multiples(
             "peer_symbols": [],
             "matrix": [],
             "peers": [],
+        }
+
+
+@router.get("/ownership/{ticker}", summary="Institutional and insider ownership")
+async def ownership_snapshot(ticker: str):
+    """Gateway-backed ownership view for overview pages.
+
+    Providers expose different holder field names, so this endpoint normalizes
+    the top rows into a small frontend contract while preserving raw rows for
+    drill-down/debugging.
+    """
+    normalized = ticker.strip().upper()
+    try:
+        data = await get_data_gateway().holders(normalized)
+        institutions = _normalize_holder_rows(data.institutions, "institution")
+        insiders = _normalize_holder_rows(data.insiders, "insider")
+        institutional_pct = _sum_pct(institutions)
+        insider_pct = _sum_pct(insiders)
+        float_pct = None
+        if institutional_pct is not None or insider_pct is not None:
+            float_pct = round(max(0.0, 100.0 - (institutional_pct or 0.0) - (insider_pct or 0.0)), 2)
+        return {
+            "ticker": normalized,
+            "available": bool(institutions or insiders),
+            "source": data.source,
+            "institutional_pct": institutional_pct,
+            "insider_pct": insider_pct,
+            "float_pct": float_pct,
+            "institutions": institutions[:10],
+            "insiders": insiders[:10],
+        }
+    except Exception:
+        logger.exception("ownership/%s failed", normalized)
+        return {
+            "ticker": normalized,
+            "available": False,
+            "source": None,
+            "institutional_pct": None,
+            "insider_pct": None,
+            "float_pct": None,
+            "institutions": [],
+            "insiders": [],
         }
 
 

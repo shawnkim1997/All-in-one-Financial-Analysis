@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { KpiSection, type KpiHistoryData } from "./KpiSection";
 import { PeerComparison, type PeerComparisonData } from "./PeerComparison";
 import { FinancialStatements } from "./FinancialStatements";
+import { Ownership } from "./Ownership";
 import { Card } from "../ui/Card";
 import { SectionHeading } from "../ui/SectionHeading";
 import { StatCard } from "../ui/StatCard";
@@ -86,6 +87,7 @@ export function EquityOverview({ ticker, sector, health }: EquityOverviewProps) 
       </Card>
       <PeerComparison currentTicker={ticker} data={peerData} />
       <FinancialStatements ticker={ticker} />
+      <Ownership ticker={ticker} />
     </div>
   );
 }
