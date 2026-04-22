@@ -180,6 +180,55 @@ async def earnings_delta(ticker: str) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=f"Earnings delta failed: {exc}") from exc
 
 
+@router.get("/{ticker}/transcript-delta", summary="Earnings call transcript phrase delta")
+async def earnings_transcript_delta(
+    ticker: str,
+    year: Optional[int] = Query(None, ge=1990, le=2035),
+    quarter: Optional[int] = Query(None, ge=1, le=4),
+    prev_year: Optional[int] = Query(None, ge=1990, le=2035),
+    prev_quarter: Optional[int] = Query(None, ge=1, le=4),
+) -> Dict[str, Any]:
+    """Compare management language between two earnings-call transcripts."""
+
+    from server.services.earnings_transcripts import (
+        compute_delta,
+        default_quarter_pair,
+        fetch_transcript,
+        generate_delta_narrative,
+    )
+    from server.services.fmp_client import fmp_is_configured
+
+    if not fmp_is_configured():
+        return {
+            "ticker": ticker.upper(),
+            "available": False,
+            "message": "Set FMP_API_KEY for earnings call transcript delta.",
+        }
+
+    if year is None or quarter is None:
+        (year, quarter), (default_prev_year, default_prev_quarter) = default_quarter_pair()
+        prev_year = prev_year or default_prev_year
+        prev_quarter = prev_quarter or default_prev_quarter
+    if prev_year is None or prev_quarter is None:
+        prev_year = year if quarter > 1 else year - 1
+        prev_quarter = quarter - 1 if quarter > 1 else 4
+
+    current = await fetch_transcript(ticker, year, quarter)
+    previous = await fetch_transcript(ticker, prev_year, prev_quarter)
+    if current is None or previous is None:
+        return {
+            "ticker": ticker.upper(),
+            "available": False,
+            "message": "Transcript pair not available for the requested quarters.",
+            "current": {"year": year, "quarter": quarter},
+            "previous": {"year": prev_year, "quarter": prev_quarter},
+        }
+
+    delta = compute_delta(current, previous)
+    delta["narrative"] = await generate_delta_narrative(delta, ticker)
+    return delta
+
+
 @router.get("/{ticker}/quarterly", summary="Quarterly earnings data")
 async def quarterly_earnings(ticker: str) -> Dict[str, Any]:
     try:

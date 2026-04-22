@@ -8,22 +8,43 @@ export interface PeerItem {
   pb: number | null;
   ps: number | null;
   ev_ebitda: number | null;
+  roic?: number | null;
+  gross_margin?: number | null;
+  rev_growth?: number | null;
 }
 
 export interface PeerComparisonData {
   ticker: string;
+  primary?: string;
   sector: string;
   industry: string;
+  metrics?: string[];
+  matrix?: PeerItem[];
   averages: {
     pe: number | null;
     pb: number | null;
     ps: number | null;
     ev_ebitda: number | null;
+    roic?: number | null;
+    gross_margin?: number | null;
+    rev_growth?: number | null;
   };
   peers: PeerItem[];
 }
 
-function formatValue(value: number | null, type: "multiple" | "marketCap" = "multiple"): string {
+type MetricKey = "pe" | "ev_ebitda" | "roic" | "gross_margin" | "rev_growth";
+
+const METRIC_LABELS: Record<MetricKey, string> = {
+  pe: "P/E",
+  ev_ebitda: "EV/EBITDA",
+  roic: "ROIC",
+  gross_margin: "Gross Margin",
+  rev_growth: "Rev Growth",
+};
+
+const LOWER_IS_BETTER = new Set<MetricKey>(["pe", "ev_ebitda"]);
+
+function formatValue(value: number | null | undefined, type: "multiple" | "marketCap" | "percent" = "multiple"): string {
   if (value == null) return "—";
   if (type === "marketCap") {
     if (value >= 1e12) return `$${(value / 1e12).toFixed(2)}T`;
@@ -31,22 +52,34 @@ function formatValue(value: number | null, type: "multiple" | "marketCap" = "mul
     if (value >= 1e6) return `$${(value / 1e6).toFixed(1)}M`;
     return `$${value.toFixed(0)}`;
   }
-  return value.toFixed(2);
+  if (type === "percent") {
+    const normalized = Math.abs(value) <= 1 ? value * 100 : value;
+    return `${normalized.toFixed(1)}%`;
+  }
+  return `${value.toFixed(1)}x`;
 }
 
-function extrema(values: Array<number | null>) {
-  const numbers = values.filter((value): value is number => value != null);
-  return {
-    min: numbers.length ? Math.min(...numbers) : null,
-    max: numbers.length ? Math.max(...numbers) : null,
-  };
+function metricType(metric: MetricKey): "multiple" | "percent" {
+  return metric === "pe" || metric === "ev_ebitda" ? "multiple" : "percent";
 }
 
-function valueClass(value: number | null, min: number | null, max: number | null): string {
-  if (value == null) return "text-text-muted";
-  if (min != null && value === min) return "text-accent-green";
-  if (max != null && value === max) return "text-accent-red";
-  return "text-text-primary";
+function percentileScore(metric: MetricKey, value: number | null | undefined, rows: PeerItem[]): number | null {
+  if (value == null) return null;
+  const values = rows
+    .map((row) => row[metric])
+    .filter((candidate): candidate is number => typeof candidate === "number" && Number.isFinite(candidate));
+  if (values.length <= 1) return 50;
+  const sorted = [...values].sort((a, b) => a - b);
+  const rank = sorted.filter((candidate) => candidate < value).length / (values.length - 1);
+  const score = LOWER_IS_BETTER.has(metric) ? (1 - rank) * 100 : rank * 100;
+  return Math.max(0, Math.min(100, score));
+}
+
+function metricCellClass(score: number | null, isPrimary: boolean): string {
+  if (score == null) return isPrimary ? "text-white/60" : "text-text-muted";
+  if (score >= 80) return isPrimary ? "bg-brand-gold text-brand-navy" : "bg-brand-gold/15 text-brand-navy";
+  if (score <= 20) return isPrimary ? "bg-fin-negative text-white" : "bg-fin-negative/10 text-fin-negative";
+  return isPrimary ? "text-white" : "text-text-primary";
 }
 
 export function PeerComparison({
@@ -56,76 +89,80 @@ export function PeerComparison({
   currentTicker: string;
   data: PeerComparisonData | null;
 }) {
-  if (!data || data.peers.length === 0) {
+  const rows = data?.matrix?.length ? data.matrix : data?.peers ?? [];
+
+  if (!data || rows.length === 0) {
     return (
-      <div className="bg-bg-card border border-border rounded-lg p-5 mt-6">
-        <h3 className="text-text-secondary text-sm font-semibold mb-2">Valuation vs. Peers</h3>
+      <div className="atlas-card mt-6 p-5">
+        <h3 className="font-serif text-lg font-bold text-brand-navy mb-2">Peer Comparison</h3>
         <div className="text-text-muted text-sm">Peer comparison data is not available for this ticker.</div>
       </div>
     );
   }
 
-  const peExtrema = extrema(data.peers.map((peer) => peer.pe));
-  const pbExtrema = extrema(data.peers.map((peer) => peer.pb));
-  const psExtrema = extrema(data.peers.map((peer) => peer.ps));
-  const evEbitdaExtrema = extrema(data.peers.map((peer) => peer.ev_ebitda));
+  const metrics = ((data.metrics?.length ? data.metrics : ["pe", "ev_ebitda", "roic", "gross_margin", "rev_growth"])
+    .filter((metric): metric is MetricKey => metric in METRIC_LABELS));
 
   return (
-    <div className="bg-bg-card border border-border rounded-lg p-5 mt-6">
+    <div className="atlas-table-shell mt-6">
       <div className="flex items-end justify-between gap-4 mb-4">
-        <div>
-          <h3 className="text-text-secondary text-sm font-semibold">Valuation vs. Peers</h3>
+        <div className="px-5 pt-5">
+          <h3 className="font-serif text-lg font-bold text-brand-navy">Peer Comparison</h3>
           <div className="text-text-muted text-xs mt-1">{data.industry || data.sector || "Industry peers"}</div>
         </div>
-        <div className="text-[11px] text-text-muted font-mono flex gap-3">
-          <span>Avg PE: {formatValue(data.averages.pe)}</span>
-          <span>Avg PB: {formatValue(data.averages.pb)}</span>
-          <span>Avg PS: {formatValue(data.averages.ps)}</span>
-          <span>Avg EV/EBITDA: {formatValue(data.averages.ev_ebitda)}</span>
+        <div className="hidden px-5 pt-5 text-[11px] text-text-muted font-mono gap-3 lg:flex">
+          <span>Avg P/E {formatValue(data.averages.pe)}</span>
+          <span>Avg EV/EBITDA {formatValue(data.averages.ev_ebitda)}</span>
+          {data.averages.gross_margin != null && <span>Avg GM {formatValue(data.averages.gross_margin, "percent")}</span>}
         </div>
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[760px] text-sm">
-          <thead>
-            <tr className="text-left text-text-muted border-b border-border">
-              <th className="py-3 pr-3 font-medium">Ticker</th>
-              <th className="py-3 pr-3 font-medium">Company</th>
-              <th className="py-3 pr-3 font-medium">Market Cap</th>
-              <th className="py-3 pr-3 font-medium">P/E</th>
-              <th className="py-3 pr-3 font-medium">P/B</th>
-              <th className="py-3 pr-3 font-medium">P/S</th>
-              <th className="py-3 font-medium">EV/EBITDA</th>
+        <table className="w-full min-w-[820px] text-sm">
+          <thead className="bg-surface-sunken">
+            <tr className="border-y border-border-strong text-left text-[11px] uppercase tracking-[0.12em] text-brand-navy">
+              <th className="py-3 px-5 font-semibold">Ticker</th>
+              <th className="py-3 pr-3 font-semibold">Company</th>
+              <th className="py-3 pr-3 text-right font-semibold">Market Cap</th>
+              {metrics.map((metric) => (
+                <th key={metric} className="py-3 pr-3 text-right font-semibold">{METRIC_LABELS[metric]}</th>
+              ))}
             </tr>
           </thead>
           <tbody>
-            {data.peers.map((peer) => {
+            {rows.map((peer) => {
               const isCurrent = peer.ticker.toUpperCase() === currentTicker.toUpperCase();
               return (
                 <tr
                   key={peer.ticker}
-                  className={`border-b border-border/60 ${isCurrent ? "bg-accent-green/10" : ""}`}
+                  className={`border-b border-border/60 ${isCurrent ? "bg-brand-navy text-white" : "hover:bg-surface-sunken"}`}
                 >
-                  <td className="py-3 pr-3 font-mono font-semibold text-text-primary">{peer.ticker}</td>
-                  <td className="py-3 pr-3 text-text-secondary">{peer.name}</td>
-                  <td className="py-3 pr-3 font-mono text-text-primary">{formatValue(peer.market_cap, "marketCap")}</td>
-                  <td className={`py-3 pr-3 font-mono ${valueClass(peer.pe, peExtrema.min, peExtrema.max)}`}>
-                    {formatValue(peer.pe)}
+                  <td className={`py-3 px-5 font-mono font-semibold ${isCurrent ? "text-brand-gold" : "text-brand-navy"}`}>
+                    {peer.ticker}
                   </td>
-                  <td className={`py-3 pr-3 font-mono ${valueClass(peer.pb, pbExtrema.min, pbExtrema.max)}`}>
-                    {formatValue(peer.pb)}
+                  <td className={`py-3 pr-3 ${isCurrent ? "text-white/80" : "text-text-secondary"}`}>{peer.name}</td>
+                  <td className={`py-3 pr-3 font-mono text-right tabular-nums ${isCurrent ? "text-white" : "text-text-primary"}`}>
+                    {formatValue(peer.market_cap, "marketCap")}
                   </td>
-                  <td className={`py-3 pr-3 font-mono ${valueClass(peer.ps, psExtrema.min, psExtrema.max)}`}>
-                    {formatValue(peer.ps)}
-                  </td>
-                  <td className={`py-3 font-mono ${valueClass(peer.ev_ebitda, evEbitdaExtrema.min, evEbitdaExtrema.max)}`}>
-                    {formatValue(peer.ev_ebitda)}
-                  </td>
+                  {metrics.map((metric) => {
+                    const value = peer[metric];
+                    const score = percentileScore(metric, value, rows);
+                    return (
+                      <td key={metric} className="py-2 pr-3 text-right">
+                        <span className={`inline-flex min-w-[76px] justify-end rounded px-2 py-1 font-mono tabular-nums ${metricCellClass(score, isCurrent)}`}>
+                          {formatValue(value, metricType(metric))}
+                        </span>
+                      </td>
+                    );
+                  })}
                 </tr>
               );
             })}
           </tbody>
         </table>
+      </div>
+      <div className="px-5 py-3 text-[11px] text-text-muted">
+        Gold marks best-in-group percentile; red marks weakest percentile. For valuation multiples, lower is better.
       </div>
     </div>
   );

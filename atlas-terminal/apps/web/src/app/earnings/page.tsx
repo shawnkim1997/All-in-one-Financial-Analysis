@@ -31,6 +31,23 @@ interface DeltaData {
   ai_summary?: string | null;
 }
 
+interface TranscriptDeltaData {
+  available: boolean;
+  message?: string;
+  current?: { year: number; quarter: number };
+  previous?: { year: number; quarter: number };
+  new_phrases?: { phrase: string; count: number }[];
+  removed_phrases?: { phrase: string; previous_count: number }[];
+  emphasis_shift?: { phrase: string; current_count: number; previous_count: number; delta: number }[];
+  tone_shift?: { current_score: number; previous_score: number };
+  narrative?: {
+    key_shifts?: string[];
+    what_it_means?: string;
+    questions_to_ask?: string[];
+    variant_view?: string;
+  };
+}
+
 export default function EarningsPage() {
   const { ticker, initialized } = useTicker();
   const [assetType, setAssetType] = useState<string>("equity");
@@ -38,6 +55,7 @@ export default function EarningsPage() {
   const [calendar, setCalendar] = useState<CalendarData | null>(null);
   const [quarterly, setQuarterly] = useState<QuarterlyData[]>([]);
   const [delta, setDelta] = useState<DeltaData | null>(null);
+  const [transcriptDelta, setTranscriptDelta] = useState<TranscriptDeltaData | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -49,12 +67,14 @@ export default function EarningsPage() {
       fetch(`/api/earnings/${ticker}/quarterly`).then((r) => r.ok ? r.json() : null),
       fetch(`/api/market/overview/${ticker}`).then((r) => r.ok ? r.json() : null),
       fetch(`/api/earnings/${ticker}/delta`).then((r) => r.ok ? r.json() : null),
-    ]).then(([h, c, q, o, d]) => {
+      fetch(`/api/earnings/${ticker}/transcript-delta`).then((r) => r.ok ? r.json() : null),
+    ]).then(([h, c, q, o, d, td]) => {
       setHistory(h?.history || []);
       setCalendar(c);
       setQuarterly(q?.quarterly || []);
       setAssetType(o?.asset_type || "equity");
       setDelta(d?.available ? d : null);
+      setTranscriptDelta(td?.available ? td : null);
       setLoading(false);
     }).catch(() => setLoading(false));
   }, [ticker, initialized]);
@@ -101,6 +121,8 @@ export default function EarningsPage() {
           </div>
         </div>
       </div>
+
+      {transcriptDelta && <TranscriptDeltaPanel data={transcriptDelta} />}
 
       {/* Earnings Delta — What Changed */}
       {delta && (
@@ -235,6 +257,112 @@ export default function EarningsPage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function TranscriptDeltaPanel({ data }: { data: TranscriptDeltaData }) {
+  const maxShift = Math.max(1, ...(data.emphasis_shift ?? []).map((row) => Math.abs(row.delta)));
+  const title = data.current && data.previous
+    ? `Q${data.current.quarter}'${String(data.current.year).slice(-2)} vs Q${data.previous.quarter}'${String(data.previous.year).slice(-2)}`
+    : "Transcript Delta";
+
+  return (
+    <div className="bg-bg-card border border-brand-blue/30 rounded-lg p-5 mb-6">
+      <div className="flex items-start justify-between gap-4 mb-4">
+        <div>
+          <h3 className="font-serif text-xl font-bold text-brand-navy">Earnings Call Delta — {title}</h3>
+          <p className="text-text-muted text-sm mt-1">Management-language changes from transcript phrase analysis.</p>
+        </div>
+        {data.tone_shift && (
+          <div className="rounded border border-border bg-surface-sunken px-3 py-2 text-right">
+            <div className="text-[10px] uppercase tracking-[0.12em] text-text-muted">Tone Shift</div>
+            <div className="font-mono text-sm text-brand-navy">
+              {data.tone_shift.previous_score.toFixed(1)} → {data.tone_shift.current_score.toFixed(1)}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-3">
+        <PhraseBox
+          title="New Phrases"
+          accent="text-fin-positive"
+          rows={(data.new_phrases ?? []).slice(0, 6).map((row) => ({ label: row.phrase, value: `${row.count}x` }))}
+          empty="No new repeated phrases."
+        />
+        <PhraseBox
+          title="Faded Phrases"
+          accent="text-fin-negative"
+          rows={(data.removed_phrases ?? []).slice(0, 6).map((row) => ({ label: row.phrase, value: `${row.previous_count}x → 0` }))}
+          empty="No faded repeated phrases."
+        />
+        <div className="rounded border border-border bg-surface-raised p-4">
+          <div className="text-[11px] uppercase tracking-[0.12em] text-brand-navy font-semibold mb-3">Emphasis Shift</div>
+          <div className="space-y-2">
+            {(data.emphasis_shift ?? []).slice(0, 6).map((row) => (
+              <div key={row.phrase}>
+                <div className="flex items-center justify-between gap-2 text-xs">
+                  <span className="truncate text-text-secondary">{row.phrase}</span>
+                  <span className={row.delta >= 0 ? "text-fin-positive font-mono" : "text-fin-negative font-mono"}>
+                    {row.previous_count} → {row.current_count}
+                  </span>
+                </div>
+                <div className="mt-1 h-1.5 rounded-full bg-surface-sunken">
+                  <div
+                    className={`h-1.5 rounded-full ${row.delta >= 0 ? "bg-fin-positive" : "bg-fin-negative"}`}
+                    style={{ width: `${Math.max(8, (Math.abs(row.delta) / maxShift) * 100)}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+            {(data.emphasis_shift ?? []).length === 0 && <div className="text-sm text-text-muted">No major emphasis shift.</div>}
+          </div>
+        </div>
+      </div>
+
+      {data.narrative && (
+        <div className="mt-4 border-l-4 border-brand-gold bg-brand-gold/10 p-4">
+          <div className="text-[11px] uppercase tracking-[0.12em] text-brand-navy font-semibold mb-2">AI Interpretation</div>
+          {data.narrative.key_shifts && data.narrative.key_shifts.length > 0 && (
+            <div className="mb-2 flex flex-wrap gap-2">
+              {data.narrative.key_shifts.slice(0, 4).map((shift) => (
+                <span key={shift} className="rounded border border-brand-gold/40 bg-white px-2 py-1 text-xs text-brand-navy">
+                  {shift}
+                </span>
+              ))}
+            </div>
+          )}
+          <p className="text-sm leading-relaxed text-text-primary">{data.narrative.what_it_means}</p>
+          {data.narrative.variant_view && <p className="mt-2 text-sm text-text-secondary">Variant view: {data.narrative.variant_view}</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PhraseBox({
+  title,
+  accent,
+  rows,
+  empty,
+}: {
+  title: string;
+  accent: string;
+  rows: { label: string; value: string }[];
+  empty: string;
+}) {
+  return (
+    <div className="rounded border border-border bg-surface-raised p-4">
+      <div className="text-[11px] uppercase tracking-[0.12em] text-brand-navy font-semibold mb-3">{title}</div>
+      <div className="space-y-2">
+        {rows.length > 0 ? rows.map((row) => (
+          <div key={row.label} className="flex items-center justify-between gap-3 text-sm">
+            <span className="truncate text-text-secondary">“{row.label}”</span>
+            <span className={`font-mono ${accent}`}>{row.value}</span>
+          </div>
+        )) : <div className="text-sm text-text-muted">{empty}</div>}
+      </div>
     </div>
   );
 }

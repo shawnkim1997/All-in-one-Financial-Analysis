@@ -3,7 +3,7 @@
 from fastapi.testclient import TestClient
 
 from server.core.providers.base import DataUnavailable
-from server.core.data_gateway import Quote
+from server.core.data_gateway import Fundamentals, Profile, Quote
 from server.main import app
 
 
@@ -96,3 +96,66 @@ def test_quote_endpoint_gateway_failure_degrades(monkeypatch) -> None:
 
     assert response.status_code == 200
     assert response.json() == {"ticker": "AAPL", "current_price": None, "change_pct": None}
+
+
+def test_peer_endpoint_returns_gateway_matrix(monkeypatch) -> None:
+    from server.routers import market_data
+
+    class FakeGateway:
+        async def profile(self, ticker: str) -> Profile:
+            return Profile(symbol=ticker.upper(), sector="Technology", industry="Semiconductors", source="fake")
+
+        async def peers(self, ticker: str) -> list[str]:
+            return ["AMD", "NVDA"]
+
+        async def fundamentals(self, ticker: str, period: str = "ttm") -> Fundamentals:
+            rows = {
+                "NVDA": Fundamentals(
+                    symbol="NVDA",
+                    period=period,
+                    name="NVIDIA",
+                    market_cap=3_000_000_000_000,
+                    pe=40.0,
+                    ev_ebitda=32.0,
+                    roic=0.45,
+                    gross_margin=0.72,
+                    revenue_growth=0.6,
+                    source="fake",
+                ),
+                "AMD": Fundamentals(
+                    symbol="AMD",
+                    period=period,
+                    name="AMD",
+                    market_cap=250_000_000_000,
+                    pe=35.0,
+                    ev_ebitda=25.0,
+                    roic=0.12,
+                    gross_margin=0.5,
+                    revenue_growth=0.1,
+                    source="fake",
+                ),
+            }
+            return rows[ticker.upper()]
+
+    monkeypatch.setattr(market_data, "get_data_gateway", lambda: FakeGateway())
+
+    with TestClient(app) as client:
+        response = client.get("/api/market/peers/NVDA?metrics=pe,ev_ebitda,roic,gross_margin")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["primary"] == "NVDA"
+    assert data["peer_symbols"] == ["AMD"]
+    assert data["metrics"] == ["pe", "ev_ebitda", "roic", "gross_margin"]
+    assert [row["ticker"] for row in data["matrix"]] == ["NVDA", "AMD"]
+    assert data["averages"]["pe"] == 37.5
+
+
+def test_transcript_delta_degrades_without_fmp_key(monkeypatch) -> None:
+    monkeypatch.delenv("FMP_API_KEY", raising=False)
+
+    with TestClient(app) as client:
+        response = client.get("/api/earnings/NVDA/transcript-delta")
+
+    assert response.status_code == 200
+    assert response.json()["available"] is False

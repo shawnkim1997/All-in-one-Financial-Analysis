@@ -7,6 +7,7 @@ from typing import Any
 
 from server.core.data_gateway import Fundamentals, OHLCV, OHLCVBar, Profile, Quote
 from server.core.providers.base import BaseProvider, ProviderError
+from server.utils.peer_universe import peer_symbols_for_profile
 
 
 class YFinanceProvider(BaseProvider):
@@ -67,8 +68,12 @@ class YFinanceProvider(BaseProvider):
             return Fundamentals(
                 symbol=symbol.upper(),
                 period=period,
+                name=info.get("shortName") or info.get("longName"),
+                market_cap=info.get("marketCap"),
                 revenue=info.get("totalRevenue"),
+                revenue_growth=info.get("revenueGrowth"),
                 gross_profit=info.get("grossProfits"),
+                gross_margin=info.get("grossMargins"),
                 operating_income=info.get("operatingMargins"),
                 net_income=info.get("netIncomeToCommon"),
                 ebitda=info.get("ebitda"),
@@ -76,9 +81,28 @@ class YFinanceProvider(BaseProvider):
                 total_debt=info.get("totalDebt"),
                 cash=info.get("totalCash"),
                 shares=info.get("sharesOutstanding"),
+                pe=info.get("trailingPE") or info.get("forwardPE"),
+                pb=info.get("priceToBook"),
+                ps=info.get("priceToSalesTrailing12Months"),
+                ev_ebitda=info.get("enterpriseToEbitda"),
+                roic=info.get("returnOnInvestedCapital") or info.get("returnOnCapital"),
                 source=self.name,
                 raw=info,
             )
+
+        return await self._to_thread(fetch)
+
+    async def peers(self, symbol: str) -> list[str]:
+        def fetch() -> list[str]:
+            normalized = symbol.strip().upper()
+            info = self._ticker(normalized).info or {}
+            syms = peer_symbols_for_profile(
+                normalized,
+                str(info.get("sector") or ""),
+                str(info.get("industry") or ""),
+                cap=6,
+            )
+            return [peer for peer in syms if peer != normalized]
 
         return await self._to_thread(fetch)
 

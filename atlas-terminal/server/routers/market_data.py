@@ -232,20 +232,28 @@ async def financial_trend(ticker: str):
         return {"years": [], "revenue": [], "net_income": [], "operating_margin": [], "fcf": []}
 
 
-@router.get("/peers/{ticker}", summary="Peer valuation multiples (sector bucket)")
-async def peer_valuation_multiples(ticker: str):
-    """P/E, P/B, P/S, EV/EBITDA vs. a small industry peer set (yfinance)."""
+@router.get("/peers/{ticker}", summary="Peer valuation multiples and percentile matrix")
+async def peer_valuation_multiples(
+    ticker: str,
+    metrics: str = Query("pe,ev_ebitda,roic,gross_margin,rev_growth", description="Comma-separated peer metrics"),
+):
+    """Gateway-backed peer comparison with legacy response fields preserved."""
     try:
-        from server.services.peer_comparison_service import build_peer_comparison
+        from server.services.peer_comparison_service import build_peer_comparison_matrix
 
-        return build_peer_comparison(ticker)
+        metric_list = [m.strip() for m in metrics.split(",") if m.strip()]
+        return await build_peer_comparison_matrix(ticker, metric_list, get_data_gateway())
     except Exception:
         logger.exception("peers/%s failed", ticker)
         return {
             "ticker": ticker.upper(),
+            "primary": ticker.upper(),
             "sector": "—",
             "industry": "—",
-            "averages": {"pe": None, "pb": None, "ps": None, "ev_ebitda": None},
+            "metrics": [m.strip() for m in metrics.split(",") if m.strip()],
+            "averages": {"pe": None, "pb": None, "ps": None, "ev_ebitda": None, "roic": None, "gross_margin": None, "rev_growth": None},
+            "peer_symbols": [],
+            "matrix": [],
             "peers": [],
         }
 

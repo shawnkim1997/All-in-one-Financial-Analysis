@@ -24,7 +24,7 @@ export function EquityOverview({ ticker, sector, health }: EquityOverviewProps) 
       fetch(`/api/financials/${encodeURIComponent(ticker)}/kpi-history`).then((r) => (r.ok ? r.json() : null)),
     ]).then(([p, k]) => {
       if (!cancelled) {
-        setPeerData(p && Array.isArray(p.peers) ? p : null);
+        setPeerData(p && (Array.isArray(p.matrix) || Array.isArray(p.peers)) ? p : null);
         setKpiData(k && Array.isArray(k.quarters) ? k : null);
       }
     });

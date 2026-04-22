@@ -45,8 +45,12 @@ class Profile:
 class Fundamentals:
     symbol: str
     period: str
+    name: str | None = None
+    market_cap: float | None = None
     revenue: float | None = None
+    revenue_growth: float | None = None
     gross_profit: float | None = None
+    gross_margin: float | None = None
     operating_income: float | None = None
     net_income: float | None = None
     ebitda: float | None = None
@@ -55,6 +59,11 @@ class Fundamentals:
     total_debt: float | None = None
     cash: float | None = None
     shares: float | None = None
+    pe: float | None = None
+    pb: float | None = None
+    ps: float | None = None
+    ev_ebitda: float | None = None
+    roic: float | None = None
     source: str = ""
     raw: dict[str, Any] = field(default_factory=dict)
 
