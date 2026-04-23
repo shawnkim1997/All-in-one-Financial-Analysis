@@ -9,10 +9,12 @@ ATLAS Terminal brings market overview, quant research, valuation, technical anal
 ## What It Does
 
 - Multi-asset overview for equities, ETFs, commodities, crypto, FX, and macro signals
+- Equity overview add-ons for peer comparison, ownership snapshots, financial statements, and thesis red-teaming
 - Quant research dashboards with F-Score, DuPont, anomalies, Sankey, and waterfall views
 - Valuation tooling including DCF, sensitivity, Monte Carlo, tornado, and reverse DCF
 - Technical analysis with candlesticks, moving averages, Bollinger Bands, RSI, MACD, and Fibonacci levels
-- Cross-market monitoring through macro, smart-money, yield/FX, earnings, news, filings, and portfolio pages
+- Cross-market monitoring through macro, smart-money, yield/FX, economic calendar, earnings, news, filings, and portfolio pages
+- Portfolio tooling for OCR import, cross-asset correlation, and a UK CGT planning calculator
 - Institutional report generation with printable PDF-style layouts
 
 ## Core Product Principle
@@ -60,6 +62,7 @@ You can also click the screenshot below to open the recorded walkthrough:
 ## Key Pages
 
 - `/` overview dashboard
+- `/calendar` institutional economic and earnings calendar
 - `/research` quant research workbench
 - `/valuation` DCF and scenario analysis
 - `/technical` chart-driven technical analysis
@@ -67,6 +70,7 @@ You can also click the screenshot below to open the recorded walkthrough:
 - `/filings` SEC, DART, and EDINET workflows
 - `/report` institutional report generator
 - `/portfolio` portfolio tracking and OCR import
+- `/portfolio/tax` UK CGT allowance simulator
 
 ## Quick Start
 
@@ -101,6 +105,19 @@ npm run e2e
 - Backend: [http://127.0.0.1:8000](http://127.0.0.1:8000)
 - API docs: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
 
+### Feature Flags
+
+Some Phase 6 institutional workflows are intentionally flag-gated while they settle:
+
+```bash
+NEXT_PUBLIC_FLAG_CALENDAR=true
+NEXT_PUBLIC_FLAG_FINANCIALS=true
+NEXT_PUBLIC_FLAG_OWNERSHIP=true
+NEXT_PUBLIC_FLAG_CORR=true
+NEXT_PUBLIC_FLAG_CGT=true
+NEXT_PUBLIC_FLAG_REDTEAM=true
+```
+
 ## Secure Credential Storage
 
 Server-side broker/API credentials are stored with envelope encryption. The master key must live in the environment and is never written to SQLite/PostgreSQL.
@@ -130,6 +147,9 @@ Credential API:
 
 ## Recent Work
 
+- Phase 6 institutional feature batch: economic calendar, gateway-backed financial statements, ownership/holders snapshots, portfolio correlation matrix, UK CGT simulator, and red-team thesis critique
+- Phase 6 frontend rollout: new `/calendar` and `/portfolio/tax` routes plus overview upgrades for peer-aware statement/ownership context
+- Phase 6 flags: `NEXT_PUBLIC_FLAG_CALENDAR`, `NEXT_PUBLIC_FLAG_FINANCIALS`, `NEXT_PUBLIC_FLAG_OWNERSHIP`, `NEXT_PUBLIC_FLAG_CORR`, `NEXT_PUBLIC_FLAG_CGT`, and `NEXT_PUBLIC_FLAG_REDTEAM`
 - Phase 5 earnings-call delta: FMP transcript pair lookup, rule-based lemmatisation, bigram/trigram TF-IDF phrase ranking, finance-topic shift detection, tone shift scoring, and best-effort Claude/Gemini narrative on the Earnings page
 - Phase 4 peer comparison: gateway-backed peer discovery, parallel fundamentals matrix, percentile-colored valuation/quality cells, and backward-compatible `/api/market/peers/{ticker}` responses for overview/report flows
 - Phase 3 security hardening: AES-GCM envelope encryption, credential tables, credential access audit logs, and `ATLAS_MASTER_KEY` documentation for future KIS/IBKR key storage
