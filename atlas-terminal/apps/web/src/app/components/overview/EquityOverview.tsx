@@ -5,6 +5,7 @@ import { KpiSection, type KpiHistoryData } from "./KpiSection";
 import { PeerComparison, type PeerComparisonData } from "./PeerComparison";
 import { FinancialStatements } from "./FinancialStatements";
 import { Ownership } from "./Ownership";
+import { RedTeamCritique } from "./RedTeamCritique";
 import { Card } from "../ui/Card";
 import { SectionHeading } from "../ui/SectionHeading";
 import { StatCard } from "../ui/StatCard";
@@ -49,7 +50,10 @@ export function EquityOverview({ ticker, sector, health }: EquityOverviewProps) 
 
   return (
     <div className="atlas-page">
-      <SectionHeading level={1}>{ticker} Overview</SectionHeading>
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <SectionHeading level={1}>{ticker} Overview</SectionHeading>
+        <RedTeamCritique ticker={ticker} />
+      </div>
       {sector?.current_price != null && (
         <p className="text-3xl font-mono font-bold text-text-primary">${Number(sector.current_price).toFixed(2)}</p>
       )}

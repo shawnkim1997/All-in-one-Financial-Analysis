@@ -282,3 +282,16 @@ def test_uk_cgt_calculator_uses_portfolio_positions(monkeypatch) -> None:
     assert data["total_unrealized_gain_gbp"] == 800.0
     assert data["tax_if_sold_all"] == 0.0
     assert data["positions"][0]["ticker"] == "AAPL"
+
+
+def test_red_team_degrades_without_api_key() -> None:
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/copilot/red-team",
+            json={"ticker": "NVDA", "thesis": "NVDA can keep compounding because AI demand remains structurally strong."},
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["source"] == "rules"
+    assert len(data["critiques"]) >= 3
