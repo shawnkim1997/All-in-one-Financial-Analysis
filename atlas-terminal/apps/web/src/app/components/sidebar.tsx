@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, Briefcase, CalendarDays, CalendarRange, FileSearch, FileText, Globe, Landmark, LineChart, Microscope, Newspaper, Search, Settings, Sparkles, Target, TrendingUp } from "lucide-react";
+import { BarChart3, Briefcase, CalendarDays, CalendarRange, FileSearch, FileText, FileVideo, Globe, Landmark, LineChart, Microscope, Newspaper, Search, Settings, Sparkles, Target, TrendingUp } from "lucide-react";
 import { useMemo, useState } from "react";
 import { flags } from "../lib/flags";
 import { searchTickerSuggestions, type TickerSuggestion } from "../lib/ticker-alias";
@@ -17,6 +17,7 @@ const NAV_ITEMS = [
   { href: "/earnings", label: "Earnings", icon: CalendarRange },
   ...(flags.calendar ? [{ href: "/calendar", label: "Calendar", icon: CalendarDays }] : []),
   { href: "/news", label: "News", icon: Newspaper },
+  { href: "/transcripts", label: "Transcripts", icon: FileVideo },
   { href: "/screener", label: "Screener", icon: Target },
   { href: "/portfolio", label: "Portfolio", icon: Briefcase },
   { href: "/filings", label: "Filings", icon: FileSearch },

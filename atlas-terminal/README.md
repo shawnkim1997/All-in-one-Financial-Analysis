@@ -15,6 +15,7 @@ ATLAS Terminal brings market overview, quant research, valuation, technical anal
 - Technical analysis with candlesticks, moving averages, Bollinger Bands, RSI, MACD, and Fibonacci levels
 - Cross-market monitoring through macro, smart-money, yield/FX, economic calendar, earnings, news, filings, and portfolio pages
 - Portfolio tooling for OCR import, cross-asset correlation, and a UK CGT planning calculator
+- Video transcript ingestion for YouTube, direct media URLs, and local uploads with searchable storage and optional Korean translation
 - Institutional report generation with printable PDF-style layouts
 
 ## Core Product Principle
@@ -67,6 +68,7 @@ You can also click the screenshot below to open the recorded walkthrough:
 - `/valuation` DCF and scenario analysis
 - `/technical` chart-driven technical analysis
 - `/macro` macro and smart-money dashboard
+- `/transcripts` video and audio transcript workbench
 - `/filings` SEC, DART, and EDINET workflows
 - `/report` institutional report generator
 - `/portfolio` portfolio tracking and OCR import
@@ -177,3 +179,29 @@ Credential API:
 ATLAS Terminal started as an attempt to build a personal Bloomberg-lite for retail investing workflows: high information density, clean narrative structure, and a hard separation between AI-generated language and deterministic financial computation.
 
 It is currently optimized as a desktop-first personal research environment rather than a SaaS product.
+
+## Video Transcript Prerequisite
+
+The `/transcripts` workflow uses `faster-whisper` plus system `ffmpeg` for local speech-to-text and media conversion. On macOS, install `ffmpeg` before running transcript jobs:
+
+```bash
+brew install ffmpeg
+```
+
+If Homebrew is not available, the repo also includes an `imageio-ffmpeg` fallback so local media extraction can still run in lightweight environments.
+
+`faster-whisper` downloads its first model automatically on demand. The default is `base`, and you can override it with `WHISPER_MODEL_SIZE=small` or `WHISPER_MODEL_SIZE=medium`.
+
+## Transcript Workflow
+
+Updated May 10, 2026.
+
+The new `/transcripts` route adds a dedicated ingestion and review flow for long-form media research:
+
+- Submit a YouTube URL, direct media URL, or local file upload
+- Prefer subtitle extraction first, then fall back to local Whisper transcription
+- Persist transcript text, summary, keywords, topics, and intent in the app database
+- Search saved transcripts with full-text search across completed jobs
+- Translate completed transcripts into Korean on demand when a Gemini key is configured in Settings
+
+This makes it easier to turn interviews, news clips, and earnings-related video into structured research notes inside ATLAS without leaving the terminal workflow.

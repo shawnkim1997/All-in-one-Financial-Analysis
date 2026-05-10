@@ -367,3 +367,56 @@ class HealthCheckResponse(BaseModel):
     """API health check."""
     status: str = "ok"
     version: str = "1.0.0"
+
+
+
+class VideoSubmitRequest(BaseModel):
+    """Request to start transcript extraction for a video or audio source."""
+    url: str = Field(..., description="YouTube URL, web URL, or local file path")
+    source_type: Literal["youtube", "url", "local"] = "url"
+    language: Optional[str] = Field(default=None, description="Optional source language hint for Whisper")
+
+
+class VideoJob(BaseModel):
+    """Video transcript job metadata."""
+    job_id: str
+    status: Literal["queued", "fetching", "transcribing", "analyzing", "completed", "failed"]
+    source_url: str
+    source_type: Literal["youtube", "url", "local"]
+    progress: int = 0
+    error: Optional[str] = None
+    title: Optional[str] = None
+    duration_sec: Optional[int] = None
+    language: Optional[str] = None
+    created_at: str
+    completed_at: Optional[str] = None
+
+
+class VideoTranscript(BaseModel):
+    """Stored transcript text plus analysis output."""
+    job_id: str
+    text: str
+    summary: Optional[str] = None
+    keywords: List[str] = Field(default_factory=list)
+    topics: List[str] = Field(default_factory=list)
+    sentiment: Optional[Literal["positive", "neutral", "negative"]] = None
+    intent: Optional[str] = None
+
+
+class VideoSearchHit(BaseModel):
+    """One transcript full-text search match."""
+    job_id: str
+    title: Optional[str] = None
+    snippet: str
+    rank: float
+
+
+class VideoTranslation(BaseModel):
+    """On-demand translated transcript payload."""
+    job_id: str
+    target_language: str = "ko"
+    summary: Optional[str] = None
+    keywords: List[str] = Field(default_factory=list)
+    topics: List[str] = Field(default_factory=list)
+    intent: Optional[str] = None
+    text: str = ""

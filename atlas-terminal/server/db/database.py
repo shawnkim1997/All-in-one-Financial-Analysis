@@ -133,6 +133,57 @@ async def init_db() -> None:
         """
     )
 
+    await db.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS video_jobs (
+            job_id TEXT PRIMARY KEY,
+            source_url TEXT NOT NULL,
+            source_type TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'queued',
+            progress INTEGER NOT NULL DEFAULT 0,
+            error TEXT,
+            title TEXT,
+            duration_sec INTEGER,
+            language TEXT,
+            transcript_text TEXT,
+            summary TEXT,
+            keywords_json TEXT,
+            topics_json TEXT,
+            sentiment TEXT,
+            intent TEXT,
+            created_at TEXT NOT NULL,
+            completed_at TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_video_jobs_created_at ON video_jobs(created_at DESC);
+
+        CREATE VIRTUAL TABLE IF NOT EXISTS video_jobs_fts USING fts5(
+            job_id UNINDEXED,
+            title,
+            transcript_text,
+            content='video_jobs',
+            content_rowid='rowid'
+        );
+
+        CREATE TRIGGER IF NOT EXISTS video_jobs_ai AFTER INSERT ON video_jobs BEGIN
+            INSERT INTO video_jobs_fts(rowid, job_id, title, transcript_text)
+            VALUES (new.rowid, new.job_id, new.title, new.transcript_text);
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS video_jobs_ad AFTER DELETE ON video_jobs BEGIN
+            INSERT INTO video_jobs_fts(video_jobs_fts, rowid, job_id, title, transcript_text)
+            VALUES ('delete', old.rowid, old.job_id, old.title, old.transcript_text);
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS video_jobs_au AFTER UPDATE ON video_jobs BEGIN
+            INSERT INTO video_jobs_fts(video_jobs_fts, rowid, job_id, title, transcript_text)
+            VALUES ('delete', old.rowid, old.job_id, old.title, old.transcript_text);
+            INSERT INTO video_jobs_fts(rowid, job_id, title, transcript_text)
+            VALUES (new.rowid, new.job_id, new.title, new.transcript_text);
+        END;
+        """
+    )
+
     await db.commit()
 
 

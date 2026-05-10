@@ -126,6 +126,35 @@ async def init_pg_tables() -> None:
         await conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_credential_access_log_at ON credential_access_log(at);
         """)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS video_jobs (
+                job_id TEXT PRIMARY KEY,
+                source_url TEXT NOT NULL,
+                source_type TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'queued',
+                progress INTEGER NOT NULL DEFAULT 0,
+                error TEXT,
+                title TEXT,
+                duration_sec INTEGER,
+                language TEXT,
+                transcript_text TEXT,
+                summary TEXT,
+                keywords_json JSONB DEFAULT '[]'::jsonb,
+                topics_json JSONB DEFAULT '[]'::jsonb,
+                sentiment TEXT,
+                intent TEXT,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                completed_at TIMESTAMPTZ
+            );
+        """)
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_video_jobs_created_at ON video_jobs(created_at DESC);
+        """)
+        await conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_video_jobs_search
+            ON video_jobs
+            USING GIN (to_tsvector('simple', coalesce(title, '') || ' ' || coalesce(transcript_text, '')));
+        """)
         logger.info("PostgreSQL tables initialized.")
 
 

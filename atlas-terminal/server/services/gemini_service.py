@@ -40,7 +40,12 @@ def get_gemini_model(api_key: str) -> Any:
     return genai.GenerativeModel(GEMINI_MODEL)
 
 
-async def generate_text(prompt: str, temperature: float = 0.3, max_tokens: int = 1200) -> str:
+async def generate_text(
+    prompt: str,
+    temperature: float = 0.3,
+    max_tokens: int = 1200,
+    api_key: str | None = None,
+) -> str:
     """Async convenience wrapper used by lightweight best-effort AI features.
 
     It reads a server-side Gemini key from the environment.  Browser-local keys
@@ -48,12 +53,12 @@ async def generate_text(prompt: str, temperature: float = 0.3, max_tokens: int =
     secrets implicitly from localStorage.
     """
 
-    api_key = (os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY") or "").strip()
-    if not api_key:
+    resolved_api_key = (api_key or os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY") or "").strip()
+    if not resolved_api_key:
         raise RuntimeError("GOOGLE_API_KEY or GEMINI_API_KEY is not configured")
 
     def _run() -> str:
-        model = get_gemini_model(api_key)
+        model = get_gemini_model(resolved_api_key)
         response = _generate_with_retry(
             model,
             prompt,
