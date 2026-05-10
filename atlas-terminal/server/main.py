@@ -81,7 +81,36 @@ app.add_middleware(
 )
 
 # --- Mount routers ---
-from server.routers import edgar, analysis, valuation, market_data, news, crypto, fx, portfolio, technical, financials, estimates, earnings, insider, screener, markets, fmp, macro, dart, edinet, research, chat, copilot, credentials, calendar, tax, video_transcript  # noqa: E402
+from server.routers import (  # noqa: E402
+    analysis,
+    calendar,
+    chat,
+    copilot,
+    credentials,
+    crypto,
+    daily_news,
+    dart,
+    edgar,
+    edinet,
+    earnings,
+    estimates,
+    financials,
+    fmp,
+    fx,
+    insider,
+    macro,
+    market_data,
+    markets,
+    news,
+    portfolio,
+    research,
+    screener,
+    search,
+    tax,
+    technical,
+    valuation,
+    video_transcript,
+)
 
 app.include_router(edgar.router, prefix="/api/edgar", tags=["SEC EDGAR"])
 app.include_router(analysis.router, prefix="/api/analysis", tags=["AI Analysis"])
@@ -107,8 +136,10 @@ app.include_router(chat.router, prefix="/api/chat", tags=["Chat"])
 app.include_router(copilot.router, prefix="/api/copilot", tags=["Copilot"])
 app.include_router(credentials.router, prefix="/api/credentials", tags=["Credentials"])
 app.include_router(calendar.router, prefix="/api/calendar", tags=["Calendar"])
+app.include_router(daily_news.router, prefix="/api/daily-news", tags=["Daily News"])
 app.include_router(video_transcript.router, prefix="/api/video", tags=["Video Transcript"])
 app.include_router(tax.router, prefix="/api/tax", tags=["Tax"])
+app.include_router(search.router, prefix="/api/search", tags=["Search"])
 
 
 @app.get("/health")

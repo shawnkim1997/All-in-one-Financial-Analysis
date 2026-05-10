@@ -1,10 +1,11 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, Briefcase, CalendarDays, CalendarRange, FileSearch, FileText, FileVideo, Globe, Landmark, LineChart, Microscope, Newspaper, Search, Settings, Sparkles, Target, TrendingUp } from "lucide-react";
-import { useMemo, useState } from "react";
+import { BarChart3, BookOpen, Briefcase, CalendarDays, CalendarRange, FileSearch, FileText, FileVideo, Globe, Landmark, LineChart, LoaderCircle, Microscope, Newspaper, Search, Settings, Sparkles, Target, TrendingUp } from "lucide-react";
+import { useEffect, useState } from "react";
 import { flags } from "../lib/flags";
-import { searchTickerSuggestions, type TickerSuggestion } from "../lib/ticker-alias";
+import { type TickerSuggestion } from "../lib/ticker-alias";
+import { useTickerSearch } from "../lib/use-ticker-search";
 import { useTicker } from "../lib/use-ticker";
 
 const NAV_ITEMS = [
@@ -17,6 +18,7 @@ const NAV_ITEMS = [
   { href: "/earnings", label: "Earnings", icon: CalendarRange },
   ...(flags.calendar ? [{ href: "/calendar", label: "Calendar", icon: CalendarDays }] : []),
   { href: "/news", label: "News", icon: Newspaper },
+  { href: "/daily-news", label: "Daily News", icon: BookOpen },
   { href: "/transcripts", label: "Transcripts", icon: FileVideo },
   { href: "/screener", label: "Screener", icon: Target },
   { href: "/portfolio", label: "Portfolio", icon: Briefcase },
@@ -29,8 +31,14 @@ export function Sidebar() {
   const [input, setInput] = useState("");
   const [highlightedIndex, setHighlightedIndex] = useState(0);
   const { ticker, setTicker } = useTicker();
-  const suggestions = useMemo(() => searchTickerSuggestions(input, 5), [input]);
+  const { suggestions, loading, source } = useTickerSearch(input, 6);
   const showSuggestions = input.trim().length > 0 && suggestions.length > 0;
+
+  useEffect(() => {
+    if (highlightedIndex >= suggestions.length) {
+      setHighlightedIndex(0);
+    }
+  }, [highlightedIndex, suggestions.length]);
 
   function selectSuggestion(suggestion: TickerSuggestion) {
     setTicker(suggestion.ticker);
@@ -108,6 +116,7 @@ export function Sidebar() {
             aria-autocomplete="list"
             className="w-full border-none bg-transparent text-sm text-text-primary outline-none"
           />
+          {loading && <LoaderCircle className="h-4 w-4 animate-spin text-brand-blue" />}
         </div>
         {showSuggestions && (
           <div id="ticker-suggestions" role="listbox" className="mt-2 overflow-hidden rounded-md border border-border bg-surface-raised shadow-card">
@@ -130,19 +139,50 @@ export function Sidebar() {
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className={`font-mono text-sm font-bold ${active ? "text-brand-gold" : "text-brand-navy"}`}>{suggestion.ticker}</span>
-                    <span className={`rounded border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.08em] ${
-                      active ? "border-white/20 text-white/70" : "border-border text-text-muted"
-                    }`}>
-                      {suggestion.exchange}
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      {suggestion.country && (
+                        <span className={`rounded border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.08em] ${
+                          active ? "border-white/20 text-white/70" : "border-border text-text-muted"
+                        }`}>
+                          {suggestion.country}
+                        </span>
+                      )}
+                      <span className={`rounded border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.08em] ${
+                        active ? "border-white/20 text-white/70" : "border-border text-text-muted"
+                      }`}>
+                        {suggestion.exchange}
+                      </span>
+                    </div>
                   </div>
                   <div className={`mt-0.5 truncate text-xs ${active ? "text-white/80" : "text-text-secondary"}`}>{suggestion.name}</div>
+                  {(suggestion.nameKo || suggestion.market || suggestion.currency) && (
+                    <div className={`mt-1 flex flex-wrap items-center gap-1.5 text-[11px] ${active ? "text-white/70" : "text-text-muted"}`}>
+                      {suggestion.nameKo && <span className="truncate">{suggestion.nameKo}</span>}
+                      {suggestion.market && (
+                        <span className={`rounded px-1.5 py-0.5 ${
+                          active ? "bg-white/10 text-white/75" : "bg-surface-sunken text-text-secondary"
+                        }`}>
+                          {suggestion.market}
+                        </span>
+                      )}
+                      {suggestion.currency && (
+                        <span className={`font-mono ${
+                          active ? "text-brand-gold" : "text-brand-blue"
+                        }`}>
+                          {suggestion.currency}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </button>
               );
             })}
+            <div className="border-t border-border bg-surface-sunken px-3 py-1.5 text-[10px] uppercase tracking-[0.08em] text-text-muted">
+              {source === "remote" ? "Live search results" : "Local desk search fallback"}
+            </div>
           </div>
         )}
-        {input.trim().length > 0 && suggestions.length === 0 && (
+        {input.trim().length > 0 && suggestions.length === 0 && !loading && (
           <div className="mt-2 rounded-md border border-border bg-surface-sunken px-3 py-2 text-xs text-text-muted">
             No match yet. Press Enter to use <span className="font-mono text-brand-navy">{input.trim().toUpperCase()}</span>.
           </div>

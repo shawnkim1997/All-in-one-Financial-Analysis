@@ -8,6 +8,11 @@ from typing import Any, Dict, List
 from fastapi import APIRouter, Query
 from server.core import flags as core_flags
 from server.core.factory import get_data_gateway
+from server.services.korean_stock_universe import (
+    get_korean_stock_record,
+    korean_stock_universe_metadata,
+    search_korean_stock_universe,
+)
 from server.utils.ticker_utils import AssetType, detect_asset_type
 
 router = APIRouter()
@@ -191,6 +196,31 @@ async def asset_type_by_ticker(ticker: str):
         return {"error": str(e), "ticker": ticker.upper(), "asset_type": AssetType.EQUITY.value}
 
 
+@router.get("/korean-universe/search", summary="Search local KOSPI/KOSDAQ universe")
+async def korean_universe_search(
+    q: str = Query("", description="Ticker code, Korean name, English name, or alias"),
+    market: str | None = Query(None, description="Optional market filter: KOSPI or KOSDAQ"),
+    limit: int = Query(10, ge=1, le=50),
+):
+    results = [record.to_dict() for record in search_korean_stock_universe(q, market=market, limit=limit)]
+    metadata = korean_stock_universe_metadata()
+    return {
+        "query": q,
+        "market": (market or "").upper() or None,
+        "count": len(results),
+        "items": results,
+        "source_path": metadata["source_path"],
+    }
+
+
+@router.get("/korean-universe/{ticker}", summary="Lookup a Korean stock from local universe")
+async def korean_universe_lookup(ticker: str):
+    record = get_korean_stock_record(ticker)
+    if not record:
+        return {"ticker": ticker.upper(), "item": None}
+    return {"ticker": ticker.upper(), "item": record.to_dict()}
+
+
 @router.get("/etf/{ticker}/holdings", summary="ETF top holdings")
 async def etf_holdings(ticker: str):
     try:
@@ -228,42 +258,44 @@ async def commodity_correlations(ticker: str):
 @router.get("/sector/{ticker}", summary="Sector and industry classification")
 async def sector_industry(ticker: str):
     try:
-        import yfinance as yf
-        t = yf.Ticker(ticker.upper())
-        info = t.info or {}
-        city = (info.get("city") or "").strip()
-        state = (info.get("state") or "").strip()
-        country = (info.get("country") or "").strip()
-        hq_parts = [p for p in [city, state, country] if p]
-        hq = ", ".join(hq_parts) if hq_parts else "N/A"
+        from server.services.etf_analysis import get_equity_overview
+
+        overview = await get_equity_overview(ticker)
         return {
-            "sector": info.get("sector", "N/A"),
-            "industry": info.get("industry", "N/A"),
-            "market_cap": _safe_float(info.get("marketCap")),
-            "pe_ratio": _safe_float(info.get("trailingPE")) or _safe_float(info.get("forwardPE")),
-            "forward_pe": _safe_float(info.get("forwardPE")),
-            "dividend_yield": _safe_float(info.get("dividendYield")),
-            "beta": _safe_float(info.get("beta")),
-            "fifty_two_week_high": _safe_float(info.get("fiftyTwoWeekHigh")),
-            "fifty_two_week_low": _safe_float(info.get("fiftyTwoWeekLow")),
-            "current_price": _safe_float(info.get("currentPrice") or info.get("regularMarketPrice")),
-            "target_mean_price": _safe_float(info.get("targetMeanPrice")),
-            "target_high_price": _safe_float(info.get("targetHighPrice")),
-            "target_low_price": _safe_float(info.get("targetLowPrice")),
-            "recommendation": info.get("recommendationKey"),
-            "analyst_count": info.get("numberOfAnalystOpinions"),
-            "forward_eps": _safe_float(info.get("forwardEps")),
-            "trailing_eps": _safe_float(info.get("trailingEps")),
-            "peg_ratio": _safe_float(info.get("pegRatio")),
-            "ceo": info.get("companyOfficers", [{}])[0].get("name") if isinstance(info.get("companyOfficers"), list) and info.get("companyOfficers") else None,
-            "employees": info.get("fullTimeEmployees"),
-            "founded": info.get("founded"),
-            "hq": hq,
-            "website": info.get("website"),
-            "ipo_date": info.get("ipoExpectedDate") or info.get("firstTradeDateEpochUtc"),
-            "description": info.get("longBusinessSummary"),
-            "currency": info.get("currency") or info.get("financialCurrency") or "USD",
-            "exchange": info.get("exchange"),
+            "name": overview.get("name"),
+            "name_ko": overview.get("name_ko"),
+            "stock_code": overview.get("stock_code"),
+            "sector": overview.get("sector") or "N/A",
+            "industry": overview.get("industry") or "N/A",
+            "market_cap": _safe_float(overview.get("market_cap")),
+            "pe_ratio": _safe_float(overview.get("pe_ratio")) or _safe_float(overview.get("forward_pe")),
+            "forward_pe": _safe_float(overview.get("forward_pe")),
+            "dividend_yield": _safe_float(overview.get("dividend_yield")),
+            "beta": _safe_float(overview.get("beta")),
+            "fifty_two_week_high": _safe_float(overview.get("high_52w")),
+            "fifty_two_week_low": _safe_float(overview.get("low_52w")),
+            "current_price": _safe_float(overview.get("price")),
+            "target_mean_price": _safe_float(overview.get("target_mean_price")),
+            "target_high_price": _safe_float(overview.get("target_high_price")),
+            "target_low_price": _safe_float(overview.get("target_low_price")),
+            "recommendation": overview.get("recommendation"),
+            "analyst_count": overview.get("num_analysts"),
+            "forward_eps": _safe_float(overview.get("forward_eps")),
+            "trailing_eps": _safe_float(overview.get("trailing_eps")),
+            "peg_ratio": _safe_float(overview.get("peg_ratio")),
+            "ceo": overview.get("ceo"),
+            "employees": overview.get("full_time_employees"),
+            "founded": overview.get("founded"),
+            "hq": overview.get("hq") or "N/A",
+            "website": overview.get("website"),
+            "ipo_date": overview.get("ipo_date"),
+            "description": overview.get("description"),
+            "currency": overview.get("currency") or "USD",
+            "exchange": overview.get("exchange"),
+            "market": overview.get("market"),
+            "source": overview.get("source"),
+            "change": _safe_float(overview.get("change")),
+            "change_pct": _safe_float(overview.get("change_pct")),
         }
     except Exception:
         logger.exception("sector/%s failed", ticker)

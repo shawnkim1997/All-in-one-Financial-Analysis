@@ -16,6 +16,7 @@ EXPECTED_PREFIXES = [
     "/api/crypto",
     "/api/copilot",
     "/api/credentials",
+    "/api/daily-news",
     "/api/dart",
     "/api/earnings",
     "/api/edgar",

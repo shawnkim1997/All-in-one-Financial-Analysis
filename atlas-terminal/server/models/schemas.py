@@ -120,6 +120,18 @@ class ConsensusResponse(BaseModel):
     data: Dict[str, Any] = {}
 
 
+class FTHeadline(BaseModel):
+    """Translated FT headline card for the daily news view."""
+    url: str
+    title_en: str
+    title_ko: Optional[str] = None
+    lede_en: Optional[str] = None
+    lede_ko: Optional[str] = None
+    section: Optional[str] = None
+    published_at: str
+    image: Optional[str] = None
+
+
 class SectorIndustryResponse(BaseModel):
     """Sector and industry classification."""
     sector: str = "N/A"
@@ -337,6 +349,8 @@ class CryptoPrice(BaseModel):
 class EdgarSectionsResponse(BaseModel):
     """Cached or downloaded filing section texts (SEC, DART, or EDINET)."""
     source: Literal["sec", "dart", "edinet"] = "sec"
+    filing_form: Optional[str] = None
+    filing_label: Optional[str] = None
     configured: bool = True
     message: Optional[str] = None
     links: Optional[Dict[str, str]] = None
@@ -367,7 +381,6 @@ class HealthCheckResponse(BaseModel):
     """API health check."""
     status: str = "ok"
     version: str = "1.0.0"
-
 
 
 class VideoSubmitRequest(BaseModel):

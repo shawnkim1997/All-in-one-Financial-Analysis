@@ -145,7 +145,10 @@ async def get_etf_overview(ticker: str) -> dict:
 async def get_equity_overview(ticker: str) -> dict:
     import yfinance as yf
 
-    t = yf.Ticker(ticker.upper())
+    from server.services.korean_market import get_naver_stock_snapshot, is_korean_equity_ticker
+
+    normalized = ticker.upper()
+    t = yf.Ticker(normalized)
     info = t.info or {}
 
     # Fallback: derive 52W low/high from history when yfinance returns 0 or None
@@ -165,25 +168,53 @@ async def get_equity_overview(ticker: str) -> dict:
         except Exception:
             pass
 
+    city = (info.get("city") or "").strip()
+    state = (info.get("state") or "").strip()
+    country = (info.get("country") or "").strip()
+    hq_parts = [part for part in [city, state, country] if part]
+    hq = ", ".join(hq_parts) if hq_parts else None
+
+    naver = await get_naver_stock_snapshot(normalized) if is_korean_equity_ticker(normalized) else None
+
+    price = _safe_num(info.get("currentPrice") or info.get("regularMarketPrice"))
+    market_cap = _safe_num(info.get("marketCap"))
+    currency = info.get("currency") or info.get("financialCurrency") or "USD"
+    exchange = info.get("exchange")
+    country_name = info.get("country")
+    description = info.get("longBusinessSummary")
+
+    if naver:
+        price = _safe_num(naver.get("current_price")) or price
+        market_cap = _safe_num(naver.get("market_cap")) or market_cap
+        hi52 = _safe_num(naver.get("fifty_two_week_high")) or hi52
+        lo52 = _safe_num(naver.get("fifty_two_week_low")) or lo52
+        currency = str(naver.get("currency") or currency or "KRW")
+        exchange = str(naver.get("exchange") or exchange or "")
+        country_name = str(naver.get("country") or country_name or "KR")
+        description = str(naver.get("description") or description or "")
+
     return {
-        "name": info.get("longName") or info.get("shortName", ticker.upper()),
+        "name": naver.get("name") if naver else info.get("longName") or info.get("shortName", normalized),
+        "name_ko": naver.get("name_ko") if naver else None,
         "sector": info.get("sector"),
         "industry": info.get("industry"),
-        "market_cap": _safe_num(info.get("marketCap")),
+        "market_cap": market_cap,
         "pe_ratio": _safe_num(info.get("trailingPE")) or _safe_num(info.get("forwardPE")),
-        "dividend_yield": _safe_num(info.get("dividendYield")),
+        "dividend_yield": _safe_num(info.get("dividendYield")) or _safe_num(naver.get("dividend_yield") / 100.0 if naver and naver.get("dividend_yield") is not None else None),
         "beta": _safe_num(info.get("beta")),
         "high_52w": hi52,
         "low_52w": lo52,
-        "price": _safe_num(info.get("currentPrice") or info.get("regularMarketPrice")),
-        "description": info.get("longBusinessSummary"),
-        "currency": info.get("currency") or info.get("financialCurrency") or "USD",
-        "exchange": info.get("exchange"),
-        "country": info.get("country"),
+        "price": price,
+        "description": description,
+        "currency": currency,
+        "exchange": exchange,
+        "country": country_name,
+        "market": naver.get("market") if naver else None,
+        "stock_code": naver.get("stock_code") if naver else None,
         "full_time_employees": info.get("fullTimeEmployees"),
         "average_volume": _safe_num(info.get("averageVolume")),
         "trailing_pe": _safe_num(info.get("trailingPE")),
-        "forward_pe": _safe_num(info.get("forwardPE")),
+        "forward_pe": _safe_num(naver.get("forward_pe") if naver else None) or _safe_num(info.get("forwardPE")),
         "enterprise_to_ebitda": _safe_num(info.get("enterpriseToEbitda")),
         "debt_to_equity": _safe_num(info.get("debtToEquity")),
         "return_on_equity": _safe_num(info.get("returnOnEquity")),
@@ -191,7 +222,20 @@ async def get_equity_overview(ticker: str) -> dict:
         "free_cashflow": _safe_num(info.get("freeCashflow")),
         "revenue_growth": _safe_num(info.get("revenueGrowth")),
         "profit_margins": _safe_num(info.get("profitMargins")),
-        "target_mean_price": _safe_num(info.get("targetMeanPrice")),
-        "recommendation": info.get("recommendationKey"),
+        "target_mean_price": _safe_num(naver.get("target_mean_price") if naver else None) or _safe_num(info.get("targetMeanPrice")),
+        "target_high_price": _safe_num(info.get("targetHighPrice")),
+        "target_low_price": _safe_num(info.get("targetLowPrice")),
+        "recommendation": naver.get("recommendation") if naver else info.get("recommendationKey"),
         "num_analysts": info.get("numberOfAnalystOpinions"),
+        "change": _safe_num(naver.get("change") if naver else None),
+        "change_pct": _safe_num(naver.get("change_pct") if naver else None),
+        "forward_eps": _safe_num(naver.get("forward_eps") if naver else None) or _safe_num(info.get("forwardEps")),
+        "trailing_eps": _safe_num(naver.get("trailing_eps") if naver else None) or _safe_num(info.get("trailingEps")),
+        "peg_ratio": _safe_num(info.get("pegRatio")),
+        "ceo": info.get("companyOfficers", [{}])[0].get("name") if isinstance(info.get("companyOfficers"), list) and info.get("companyOfficers") else None,
+        "founded": info.get("founded"),
+        "hq": hq,
+        "website": info.get("website"),
+        "ipo_date": info.get("ipoExpectedDate") or info.get("firstTradeDateEpochUtc"),
+        "source": naver.get("source") if naver else "yfinance",
     }

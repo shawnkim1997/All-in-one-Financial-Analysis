@@ -43,6 +43,31 @@ const METRIC_LABELS: Record<MetricKey, string> = {
 };
 
 const LOWER_IS_BETTER = new Set<MetricKey>(["pe", "ev_ebitda"]);
+const ZERO_DECIMAL_CURRENCIES = new Set(["KRW", "JPY"]);
+const CURRENCY_LOCALES: Record<string, string> = {
+  KRW: "ko-KR",
+  JPY: "ja-JP",
+  USD: "en-US",
+};
+
+function currencyForTicker(ticker: string): string {
+  const normalized = ticker.toUpperCase();
+  if (normalized.endsWith(".KS") || normalized.endsWith(".KQ")) return "KRW";
+  if (normalized.endsWith(".T")) return "JPY";
+  return "USD";
+}
+
+function formatMarketCap(value: number | null | undefined, ticker: string): string {
+  if (value == null) return "—";
+  const currency = currencyForTicker(ticker);
+  return new Intl.NumberFormat(CURRENCY_LOCALES[currency] || "en-US", {
+    style: "currency",
+    currency,
+    notation: "compact",
+    minimumFractionDigits: 0,
+    maximumFractionDigits: ZERO_DECIMAL_CURRENCIES.has(currency) ? 1 : 2,
+  }).format(value);
+}
 
 function formatValue(value: number | null | undefined, type: "multiple" | "marketCap" | "percent" = "multiple"): string {
   if (value == null) return "—";
@@ -142,7 +167,7 @@ export function PeerComparison({
                   </td>
                   <td className={`py-3 pr-3 ${isCurrent ? "text-white/80" : "text-text-secondary"}`}>{peer.name}</td>
                   <td className={`py-3 pr-3 font-mono text-right tabular-nums ${isCurrent ? "text-white" : "text-text-primary"}`}>
-                    {formatValue(peer.market_cap, "marketCap")}
+                    {formatMarketCap(peer.market_cap, peer.ticker)}
                   </td>
                   {metrics.map((metric) => {
                     const value = peer[metric];
