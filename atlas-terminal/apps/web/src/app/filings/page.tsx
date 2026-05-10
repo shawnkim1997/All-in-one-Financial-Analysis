@@ -18,6 +18,14 @@ const SECTIONS_SEC: FilingSectionTab[] = [
   { key: "item9a", label: "Item 9A: Controls & Procedures", short: "Controls", anchorId: "sec-item-9a" },
 ];
 
+const SECTIONS_SEC_FOREIGN: FilingSectionTab[] = [
+  { key: "item1a", label: "Item 3 / 3D: Risk Factors", short: "Risk Factors", anchorId: "sec-item-1a" },
+  { key: "item3", label: "Legal / Material Proceedings", short: "Legal", anchorId: "sec-item-3" },
+  { key: "item7", label: "Item 5: Operating & Financial Review", short: "OFR", anchorId: "sec-item-7" },
+  { key: "item8", label: "Item 18: Financial Statements", short: "Financials", anchorId: "sec-item-8" },
+  { key: "item9a", label: "Item 15: Controls & Procedures", short: "Controls", anchorId: "sec-item-9a" },
+];
+
 const SECTIONS_DART: FilingSectionTab[] = [
   { key: "item1a", label: "Investment Risk (II)", short: "Risk", anchorId: "dart-item-1a" },
   { key: "item3", label: "Litigation", short: "Legal", anchorId: "dart-item-3" },
@@ -34,9 +42,10 @@ const SECTIONS_EDINET: FilingSectionTab[] = [
   { key: "item9a", label: "内部統制", short: "内部統制", anchorId: "edinet-item-9a" },
 ];
 
-function sectionsForJurisdiction(j: FilingJurisdiction): FilingSectionTab[] {
+function sectionsForJurisdiction(j: FilingJurisdiction, secForm: string | null): FilingSectionTab[] {
   if (j === "DART") return SECTIONS_DART;
   if (j === "EDINET") return SECTIONS_EDINET;
+  if (secForm && secForm !== "10-K") return SECTIONS_SEC_FOREIGN;
   return SECTIONS_SEC;
 }
 
@@ -60,6 +69,7 @@ export default function FilingsPage() {
   const [error, setError] = useState<string>("");
   const [htmlVersion, setHtmlVersion] = useState(0);
   const [filingSource, setFilingSource] = useState<FilingJurisdiction | null>(null);
+  const [secFilingForm, setSecFilingForm] = useState<string | null>(null);
   const [linkMap, setLinkMap] = useState<Record<string, string> | null>(null);
   const [infoMessage, setInfoMessage] = useState<string>("");
   const [translatedText, setTranslatedText] = useState<string>("");
@@ -68,7 +78,10 @@ export default function FilingsPage() {
 
   const previewJ = inferFilingJurisdiction(ticker);
   const activeJurisdiction = filingSource ?? previewJ;
-  const sectionTabs = useMemo(() => sectionsForJurisdiction(activeJurisdiction), [activeJurisdiction]);
+  const sectionTabs = useMemo(
+    () => sectionsForJurisdiction(activeJurisdiction, activeJurisdiction === "SEC" ? secFilingForm : null),
+    [activeJurisdiction, secFilingForm],
+  );
 
   async function loadFiling() {
     setLoading(true);
@@ -78,6 +91,7 @@ export default function FilingsPage() {
     setAiSummary("");
     setLinkMap(null);
     setInfoMessage("");
+    setSecFilingForm(null);
     const j = inferFilingJurisdiction(ticker);
 
     try {
@@ -90,6 +104,7 @@ export default function FilingsPage() {
         if (res.ok) {
           const data = await res.json();
           setFilingSource(mapApiSource(data.source));
+          setSecFilingForm(typeof data.filing_form === "string" ? data.filing_form : "10-K");
           setSections({
             item1a: data.item1a || "",
             item3: data.item3 || "",
@@ -100,6 +115,9 @@ export default function FilingsPage() {
           setHtmlDoc(typeof data.html === "string" ? data.html : "");
           if (data.links && typeof data.links === "object") {
             setLinkMap(data.links as Record<string, string>);
+          }
+          if (typeof data.message === "string" && data.message) {
+            setInfoMessage(data.message);
           }
           setActiveSection("item7");
           setHtmlVersion((v) => v + 1);
@@ -269,8 +287,8 @@ export default function FilingsPage() {
       };
     }
     return {
-      title: "10-K Annual Report (SEC)",
-      body: "Downloads the latest 10-K from SEC EDGAR. The filing is shown with original HTML tables and emphasis, restyled for the terminal dark theme. Section tabs scroll to Item 1A, MD&A, and more.",
+      title: "Annual Report (SEC)",
+      body: "Downloads the latest annual SEC filing from EDGAR. US issuers typically use 10-K, while ADRs and foreign issuers often use 20-F or 40-F. The filing is shown with original HTML tables and emphasis, with section tabs for risk factors, management discussion, financials, and controls.",
     };
   }, [previewJ]);
 
@@ -319,7 +337,7 @@ export default function FilingsPage() {
               {loading
                 ? "Loading..."
                 : previewJ === "SEC"
-                  ? "Load 10-K Filing"
+                  ? "Load SEC Annual Filing"
                   : previewJ === "DART"
                     ? "Load DART Report"
                     : "Load EDINET filing"}

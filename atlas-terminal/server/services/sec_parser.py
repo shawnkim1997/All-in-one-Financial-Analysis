@@ -1,8 +1,8 @@
-"""SEC EDGAR 10-K download, parsing, section extraction, and caching.
+"""SEC EDGAR annual filing download, parsing, section extraction, and caching.
 
-Handles the full pipeline from downloading a 10-K filing via
+Handles the full pipeline from downloading an annual filing (10-K / 20-F / 40-F) via
 ``sec_edgar_downloader`` through HTML stripping to isolating individual
-Item sections (1A, 3, 7, 8, 9A) and persisting the cleaned text to a
+Item sections (risk, legal/other, MD&A/OFR, financials, controls) and persisting the cleaned text to a
 local JSON cache under ``data/``.
 """
 
@@ -21,6 +21,8 @@ from bs4.element import Comment, Tag
 from server.services.text_chunker import clean_text_for_llm, smart_chunk
 
 logger = logging.getLogger(__name__)
+
+ANNUAL_SEC_FORMS: List[str] = ["10-K", "20-F", "40-F"]
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -60,12 +62,13 @@ def _resolve_cik(ticker: str) -> Optional[int]:
         return None
 
 
-def get_sec_filing_url(ticker: str) -> Optional[str]:
-    """Return the URL of the latest 10-K filing document on SEC EDGAR."""
+def get_sec_filing_url(ticker: str, preferred_forms: Optional[List[str]] = None) -> Optional[str]:
+    """Return the URL of the latest annual filing document on SEC EDGAR."""
     cik = _resolve_cik(ticker)
     if cik is None:
         return None
     cik_padded = str(cik).zfill(10)
+    forms_to_match = preferred_forms or ANNUAL_SEC_FORMS
     try:
         resp = httpx.get(
             f"https://data.sec.gov/submissions/CIK{cik_padded}.json",
@@ -79,7 +82,7 @@ def get_sec_filing_url(ticker: str) -> Optional[str]:
         accessions = recent.get("accessionNumber", [])
         docs = recent.get("primaryDocument", [])
         for i, form in enumerate(forms):
-            if form in ("10-K", "10-K/A"):
+            if form in forms_to_match or form.replace("/A", "") in forms_to_match:
                 acc_no_dash = accessions[i].replace("-", "")
                 return (
                     f"https://www.sec.gov/Archives/edgar/data"
@@ -118,6 +121,36 @@ ITEM9A_PATTERNS: List[str] = [
     r"Item\s+9A\s*[.:]\s*Controls\s+and\s+Procedures",
     r"Item\s+9A\s*[.:]\s*Internal\s+Control",
     r"ITEM\s+9A\s*[.:]\s*Controls",
+]
+
+ITEM20F_RISK_PATTERNS: List[str] = [
+    r"Item\s+3\.?\s*D\s*[.:]\s*Risk\s+Factors",
+    r"ITEM\s+3\.?\s*D\s*[.:]\s*Risk\s+Factors",
+    r"Item\s+3\s*[.:][^\n]*Risk\s+Factors",
+]
+
+ITEM20F_MDA_PATTERNS: List[str] = [
+    r"Item\s+5\s*[.:]\s*Operating\s+and\s+Financial\s+Review\s+and\s+Prospects",
+    r"ITEM\s+5\s*[.:]\s*Operating\s+and\s+Financial\s+Review",
+]
+
+ITEM20F_FIN_PATTERNS: List[str] = [
+    r"Item\s+18\s*[.:]\s*Financial\s+Statements",
+    r"ITEM\s+18\s*[.:]\s*Financial\s+Statements",
+    r"Item\s+17\s*[.:]\s*Financial\s+Statements",
+    r"Item\s+8\s*[.:]\s*Financial\s+Information",
+]
+
+ITEM20F_CONTROLS_PATTERNS: List[str] = [
+    r"Item\s+15\s*[.:]\s*Controls\s+and\s+Procedures",
+    r"ITEM\s+15\s*[.:]\s*Controls\s+and\s+Procedures",
+    r"Item\s+15\s*[.:]\s*Disclosure\s+Controls",
+]
+
+ITEM20F_LEGAL_PATTERNS: List[str] = [
+    r"Legal\s+Proceedings",
+    r"Litigation",
+    r"Arbitration",
 ]
 
 
@@ -262,14 +295,14 @@ def _get_edgar_downloader() -> type:
     return Downloader
 
 
-def find_downloaded_10k_path(download_root: Path, ticker: str) -> Optional[Path]:
-    """Locate the most recent 10-K filing directory on disk."""
+def find_downloaded_filing_path(download_root: Path, ticker: str, form_type: str) -> Optional[Path]:
+    """Locate the most recent filing directory for *form_type* on disk."""
     ticker_upper = ticker.upper()
     for base in (download_root / "sec-edgar-filings", download_root):
-        path_10k = base / ticker_upper / "10-K"
-        if path_10k.exists():
+        filing_path = base / ticker_upper / form_type
+        if filing_path.exists():
             subdirs = sorted(
-                [d for d in path_10k.iterdir() if d.is_dir()],
+                [d for d in filing_path.iterdir() if d.is_dir()],
                 key=lambda x: x.name,
                 reverse=True,
             )
@@ -281,10 +314,10 @@ def find_downloaded_10k_path(download_root: Path, ticker: str) -> Optional[Path]
         for company_dir in base.iterdir():
             if not company_dir.is_dir():
                 continue
-            path_10k = company_dir / "10-K"
-            if path_10k.exists():
+            filing_path = company_dir / form_type
+            if filing_path.exists():
                 subdirs = sorted(
-                    [d for d in path_10k.iterdir() if d.is_dir()],
+                    [d for d in filing_path.iterdir() if d.is_dir()],
                     key=lambda x: x.name,
                     reverse=True,
                 )
@@ -293,18 +326,28 @@ def find_downloaded_10k_path(download_root: Path, ticker: str) -> Optional[Path]
     return None
 
 
-def find_all_10k_filing_dirs(download_root: Path, ticker: str) -> List[Path]:
-    """Return all 10-K filing directories sorted newest-first."""
+def find_downloaded_10k_path(download_root: Path, ticker: str) -> Optional[Path]:
+    """Backwards-compatible alias for 10-K directory lookup."""
+    return find_downloaded_filing_path(download_root, ticker, "10-K")
+
+
+def find_all_filing_dirs(download_root: Path, ticker: str, form_type: str) -> List[Path]:
+    """Return all filing directories for *form_type* sorted newest-first."""
     ticker_upper = ticker.upper()
     for base in (download_root / "sec-edgar-filings", download_root):
-        path_10k = base / ticker_upper / "10-K"
-        if path_10k.exists():
+        filing_path = base / ticker_upper / form_type
+        if filing_path.exists():
             return sorted(
-                [d for d in path_10k.iterdir() if d.is_dir()],
+                [d for d in filing_path.iterdir() if d.is_dir()],
                 key=lambda x: x.name,
                 reverse=True,
             )
     return []
+
+
+def find_all_10k_filing_dirs(download_root: Path, ticker: str) -> List[Path]:
+    """Backwards-compatible alias for 10-K directory lookup."""
+    return find_all_filing_dirs(download_root, ticker, "10-K")
 
 
 def get_main_10k_text(filing_dir: Path) -> str:
@@ -367,11 +410,31 @@ def _strip_scripts_keep_html(html: str) -> str:
 
 # Regex bundles for DOM anchor injection (first match in document order wins).
 _SEC_ITEM_INJECT_SPECS: List[tuple[str, List[re.Pattern]]] = [
-    ("sec-item-1a", [re.compile(p, re.I) for p in ITEM1A_PATTERNS] + [re.compile(r"Item\s+1A\s*[.:]", re.I)]),
-    ("sec-item-3", [re.compile(p, re.I) for p in ITEM3_PATTERNS] + [re.compile(r"Item\s+3\s*[.:]", re.I)]),
-    ("sec-item-7", [re.compile(p, re.I) for p in ITEM7_PATTERNS] + [re.compile(r"Item\s+7\s*[.:]", re.I)]),
-    ("sec-item-8", [re.compile(p, re.I) for p in ITEM8_PATTERNS] + [re.compile(r"Item\s+8\s*[.:]", re.I)]),
-    ("sec-item-9a", [re.compile(p, re.I) for p in ITEM9A_PATTERNS] + [re.compile(r"Item\s+9A\s*[.:]", re.I)]),
+    (
+        "sec-item-1a",
+        [re.compile(p, re.I) for p in ITEM1A_PATTERNS + ITEM20F_RISK_PATTERNS]
+        + [re.compile(r"Item\s+1A\s*[.:]", re.I), re.compile(r"Item\s+3\.?\s*D\s*[.:]", re.I)],
+    ),
+    (
+        "sec-item-3",
+        [re.compile(p, re.I) for p in ITEM3_PATTERNS + ITEM20F_LEGAL_PATTERNS]
+        + [re.compile(r"Legal\s+Proceedings", re.I)],
+    ),
+    (
+        "sec-item-7",
+        [re.compile(p, re.I) for p in ITEM7_PATTERNS + ITEM20F_MDA_PATTERNS]
+        + [re.compile(r"Item\s+7\s*[.:]", re.I), re.compile(r"Item\s+5\s*[.:]", re.I)],
+    ),
+    (
+        "sec-item-8",
+        [re.compile(p, re.I) for p in ITEM8_PATTERNS + ITEM20F_FIN_PATTERNS]
+        + [re.compile(r"Item\s+8\s*[.:]", re.I), re.compile(r"Item\s+18\s*[.:]", re.I)],
+    ),
+    (
+        "sec-item-9a",
+        [re.compile(p, re.I) for p in ITEM9A_PATTERNS + ITEM20F_CONTROLS_PATTERNS]
+        + [re.compile(r"Item\s+9A\s*[.:]", re.I), re.compile(r"Item\s+15\s*[.:]", re.I)],
+    ),
 ]
 
 
@@ -548,6 +611,12 @@ def _get_10k_cache_path(ticker: str) -> Path:
     return _DATA_DIR / f"{ticker.upper()}_latest.json"
 
 
+def _get_filing_meta_cache_path(ticker: str) -> Path:
+    """Path for cached filing metadata alongside the section cache."""
+    _DATA_DIR.mkdir(parents=True, exist_ok=True)
+    return _DATA_DIR / f"{ticker.upper()}_latest_meta.json"
+
+
 def _load_10k_from_cache(ticker: str) -> Optional[Dict[str, str]]:
     """Load cached sections or return ``None`` if absent."""
     path = _get_10k_cache_path(ticker)
@@ -568,51 +637,130 @@ def _save_10k_to_cache(ticker: str, data: Dict[str, str]) -> None:
         json.dump(data, f, ensure_ascii=False, indent=0)
 
 
+def _load_filing_meta_from_cache(ticker: str) -> Dict[str, str]:
+    """Load cached filing metadata, defaulting legacy caches to 10-K."""
+    path = _get_filing_meta_cache_path(ticker)
+    if not path.exists():
+        return {"filing_form": "10-K", "filing_label": "10-K Annual Report (SEC)"}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+        if isinstance(raw, dict):
+            filing_form = str(raw.get("filing_form") or "10-K")
+            filing_label = str(raw.get("filing_label") or f"{filing_form} Annual Report (SEC)")
+            return {"filing_form": filing_form, "filing_label": filing_label}
+    except Exception:
+        pass
+    return {"filing_form": "10-K", "filing_label": "10-K Annual Report (SEC)"}
+
+
+def _save_filing_meta_to_cache(ticker: str, filing_form: str) -> None:
+    """Persist latest filing metadata."""
+    path = _get_filing_meta_cache_path(ticker)
+    payload = {
+        "filing_form": filing_form,
+        "filing_label": f"{filing_form} Annual Report (SEC)",
+    }
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=0)
+
+
 # ---------------------------------------------------------------------------
 # High-level download + extract
 # ---------------------------------------------------------------------------
 
-def download_and_extract_all_items(ticker: str, email: str) -> Dict[str, str]:
-    """Download latest 10-K, extract Items 1A/3/7/8/9A, clean and cache."""
-    Downloader = _get_edgar_downloader()
-    raw_html: Optional[str] = None
-    with tempfile.TemporaryDirectory() as tmpdir:
-        download_root = Path(tmpdir)
-        dl = Downloader("FQDC-10K-Analyzer", email, str(download_root))
-        dl.get("10-K", ticker.upper(), limit=1, download_details=True)
-        filing_dir = find_downloaded_10k_path(download_root, ticker)
-        if not filing_dir:
-            raise FileNotFoundError(f"Could not find 10-K for ticker '{ticker}'.")
-        full_text = get_main_10k_text(filing_dir)
-        if not full_text:
-            raise ValueError("Could not extract text from the 10-K.")
-        # Read raw HTML while tempdir still exists
-        raw_html = read_main_10k_html_raw(filing_dir)
+def _extract_sections_for_form(full_text: str, filing_form: str) -> Dict[str, str]:
+    """Extract normalised section buckets for a specific SEC annual form."""
+    if filing_form == "20-F":
+        item1a = find_item_section_generic(full_text, ITEM20F_RISK_PATTERNS, 3, ["Risk", "Factors"], max_chars=80_000)
+        item3 = find_item_section_generic(full_text, ITEM20F_LEGAL_PATTERNS, 8, ["Legal", "Proceedings", "Arbitration"], max_chars=40_000)
+        start7 = _find_section_start(full_text, ITEM20F_MDA_PATTERNS, 5)
+        text_after_7 = full_text[start7:] if start7 >= 0 else full_text
+        item7 = find_item_section_generic(
+            text_after_7,
+            ITEM20F_MDA_PATTERNS,
+            5,
+            ["Operating", "Financial", "Review", "Prospects"],
+            max_chars=100_000,
+        )
+        if not item7 and text_after_7:
+            item7 = text_after_7[:120_000]
+        item8 = find_item_section_generic(
+            full_text,
+            ITEM20F_FIN_PATTERNS,
+            18,
+            ["Financial Statements", "Financial Information"],
+            max_chars=200_000,
+        )
+        item9a = find_item_section_generic(
+            full_text,
+            ITEM20F_CONTROLS_PATTERNS,
+            15,
+            ["Controls", "Procedures", "Internal"],
+            max_chars=50_000,
+        )
+    else:
+        item1a = find_item_section_generic(full_text, ITEM1A_PATTERNS, 1, ["Risk", "Factors"], max_chars=80_000)
+        item3 = _extract_item_from_full(full_text, ITEM3_PATTERNS, 3, ["Legal", "Proceedings"], max_chars=40_000)
+        item9a = _extract_item_from_full(full_text, ITEM9A_PATTERNS, 9, ["Controls", "Procedures", "Internal"], max_chars=40_000)
+        start7 = _find_section_start(full_text, ITEM7_PATTERNS, 7)
+        text_after_7 = full_text[start7:] if start7 >= 0 else full_text
+        item7 = find_item_section_generic(text_after_7, ITEM7_PATTERNS, 7, ["Management's Discussion", "MD&A", "Analysis"], max_chars=100_000)
+        if not item7 and text_after_7:
+            item7 = text_after_7[:120_000]
+        item8 = _extract_item_from_full(full_text, ITEM8_PATTERNS, 8, ["Financial Statements", "Supplementary Data"], max_chars=200_000)
 
-    item1a = find_item_section_generic(full_text, ITEM1A_PATTERNS, 1, ["Risk", "Factors"], max_chars=80_000)
-    item3 = _extract_item_from_full(full_text, ITEM3_PATTERNS, 3, ["Legal", "Proceedings"], max_chars=40_000)
-    item9a = _extract_item_from_full(full_text, ITEM9A_PATTERNS, 9, ["Controls", "Procedures", "Internal"], max_chars=40_000)
-
-    start7 = _find_section_start(full_text, ITEM7_PATTERNS, 7)
-    text_after_7 = full_text[start7:] if start7 >= 0 else full_text
-    item7 = find_item_section_generic(text_after_7, ITEM7_PATTERNS, 7, ["Management's Discussion", "MD&A", "Analysis"], max_chars=100_000)
-    if not item7 and text_after_7:
-        item7 = text_after_7[:120_000]
-    item8 = _extract_item_from_full(full_text, ITEM8_PATTERNS, 8, ["Financial Statements", "Supplementary Data"], max_chars=200_000)
-
-    data: Dict[str, str] = {
+    return {
         "item1a": clean_text_for_llm(item1a or ""),
         "item3": clean_text_for_llm(item3 or ""),
         "item9a": clean_text_for_llm(item9a or ""),
         "item7": clean_text_for_llm(item7 or ""),
         "item8": clean_text_for_llm(item8 or ""),
     }
+
+
+def _download_latest_annual_filing_dir(download_root: Path, ticker: str, email: str, limit: int = 1) -> tuple[str, Path]:
+    """Download the latest available annual SEC filing directory for a ticker."""
+    Downloader = _get_edgar_downloader()
+    dl = Downloader("FQDC-10K-Analyzer", email, str(download_root))
+    for filing_form in ANNUAL_SEC_FORMS:
+        dl.get(filing_form, ticker.upper(), limit=limit, download_details=True)
+        filing_dir = find_downloaded_filing_path(download_root, ticker, filing_form)
+        if filing_dir:
+            return filing_form, filing_dir
+    raise FileNotFoundError(
+        f"Could not find annual SEC filing (10-K / 20-F / 40-F) for ticker '{ticker}'."
+    )
+
+
+def download_and_extract_all_items_with_form(ticker: str, email: str) -> tuple[Dict[str, str], str]:
+    """Download latest annual filing, extract sections, and return filing form."""
+    Downloader = _get_edgar_downloader()
+    raw_html: Optional[str] = None
+    with tempfile.TemporaryDirectory() as tmpdir:
+        download_root = Path(tmpdir)
+        _ = Downloader
+        filing_form, filing_dir = _download_latest_annual_filing_dir(download_root, ticker, email, limit=1)
+        full_text = get_main_10k_text(filing_dir)
+        if not full_text:
+            raise ValueError(f"Could not extract text from the {filing_form}.")
+        # Read raw HTML while tempdir still exists
+        raw_html = read_main_10k_html_raw(filing_dir)
+
+    data = _extract_sections_for_form(full_text, filing_form)
     _save_10k_to_cache(ticker, data)
+    _save_filing_meta_to_cache(ticker, filing_form)
 
     if raw_html:
         fragment = prepare_native_html_fragment_from_10k_raw(raw_html)
         if fragment:
             save_10k_html_slice(ticker, fragment)
+    return data, filing_form
+
+
+def download_and_extract_all_items(ticker: str, email: str) -> Dict[str, str]:
+    """Backwards-compatible wrapper returning only the section payload."""
+    data, _ = download_and_extract_all_items_with_form(ticker, email)
     return data
 
 
@@ -624,9 +772,19 @@ def get_10k_sections(ticker: str, email: str) -> tuple[Dict[str, str], str]:
     return download_and_extract_all_items(ticker, email), "downloaded"
 
 
+def get_annual_sections_with_form(ticker: str, email: str) -> tuple[Dict[str, str], str, str]:
+    """Return sections, cache status, and detected annual SEC filing form."""
+    cached = _load_10k_from_cache(ticker)
+    if cached is not None:
+        meta = _load_filing_meta_from_cache(ticker)
+        return cached, "cache", meta.get("filing_form", "10-K")
+    data, filing_form = download_and_extract_all_items_with_form(ticker, email)
+    return data, "downloaded", filing_form
+
+
 def download_and_extract_item7_and_1a(ticker: str, email: str) -> tuple[str, str, str]:
-    """Fetch 10-K and return ``(full_text, item1a, item7)``."""
-    sections, _ = get_10k_sections(ticker, email)
+    """Fetch annual filing and return ``(full_text, item1a, item7)``."""
+    sections, _, _ = get_annual_sections_with_form(ticker, email)
     return "", sections.get("item1a", "") or "", sections.get("item7", "") or ""
 
 
@@ -634,38 +792,34 @@ def download_item7_latest_and_3y_ago(
     ticker: str,
     email: str,
 ) -> tuple[Optional[str], Optional[str], Optional[str], bool]:
-    """Download up to 5 10-Ks; return item1a (latest), item7 latest, item7 3y ago, has_comparison."""
-    Downloader = _get_edgar_downloader()
+    """Download up to 5 annual filings and compare latest vs 3-years-ago MD&A/OFR."""
     with tempfile.TemporaryDirectory() as tmpdir:
         download_root = Path(tmpdir)
-        dl = Downloader("FQDC-10K-Analyzer", email, str(download_root))
-        dl.get("10-K", ticker.upper(), limit=5, download_details=True)
-        filing_dirs = find_all_10k_filing_dirs(download_root, ticker)
+        filing_form, _ = _download_latest_annual_filing_dir(download_root, ticker, email, limit=5)
+        filing_dirs = find_all_filing_dirs(download_root, ticker, filing_form)
         if not filing_dirs:
-            raise FileNotFoundError(f"Could not find 10-K for ticker '{ticker}'.")
+            raise FileNotFoundError(
+                f"Could not find annual SEC filing (10-K / 20-F / 40-F) for ticker '{ticker}'."
+            )
 
         full_latest = get_main_10k_text(filing_dirs[0])
         if not full_latest:
-            raise ValueError("Could not extract text from the latest 10-K.")
+            raise ValueError(f"Could not extract text from the latest {filing_form}.")
 
-        item1a = find_item_section_generic(full_latest, ITEM1A_PATTERNS, 1, ["Risk", "Factors"], max_chars=80_000)
-
-        s7 = _find_section_start(full_latest, ITEM7_PATTERNS, 7)
-        text_after_7 = full_latest[s7:] if s7 >= 0 else full_latest
-        item7_latest = find_item_section_generic(text_after_7, ITEM7_PATTERNS, 7, ["Management's Discussion", "MD&A", "Analysis"], max_chars=100_000)
-        if not item7_latest and text_after_7:
-            item7_latest = smart_chunk(text_after_7[:120_000], max_chars=20_000)
+        latest_sections = _extract_sections_for_form(full_latest, filing_form)
+        item1a = latest_sections.get("item1a", "")
+        item7_latest = latest_sections.get("item7", "")
+        if not item7_latest and full_latest:
+            item7_latest = smart_chunk(full_latest[:120_000], max_chars=20_000)
 
         item7_3y_ago: Optional[str] = None
         has_comparison = False
         if len(filing_dirs) >= 4:
             full_3y = get_main_10k_text(filing_dirs[3])
             if full_3y:
-                s7_3y = _find_section_start(full_3y, ITEM7_PATTERNS, 7)
-                text_3y = full_3y[s7_3y:] if s7_3y >= 0 else full_3y
-                item7_3y_ago = find_item_section_generic(text_3y, ITEM7_PATTERNS, 7, ["Management's Discussion", "MD&A", "Analysis"], max_chars=100_000)
-                if not item7_3y_ago and text_3y:
-                    item7_3y_ago = smart_chunk(text_3y[:120_000], max_chars=20_000)
+                item7_3y_ago = _extract_sections_for_form(full_3y, filing_form).get("item7", "")
+                if not item7_3y_ago:
+                    item7_3y_ago = smart_chunk(full_3y[:120_000], max_chars=20_000)
                 has_comparison = bool(item7_3y_ago)
 
     return item1a or "", item7_latest or "", item7_3y_ago, has_comparison
