@@ -96,17 +96,23 @@ atlas-terminal/
 │   │   ├── macro/page.tsx           # 거시 5탭(FRED/Cycle/OECD/Korea/Calendar) + Quadrant/YieldFX/SmartMoney
 │   │   ├── earnings/page.tsx        # EPS Beat/Miss + Revenue + Next Earnings
 │   │   ├── news/page.tsx            # Split-view: 기사 리스트 + iframe 원문
+│   │   ├── transcripts/page.tsx     # 비디오/오디오 트랜스크립트 업로드 + 검색 + 분석
 │   │   ├── screener/page.tsx        # 종목 스크리너 + 전략 백테스트
 │   │   ├── portfolio/page.tsx       # 포지션 CRUD + Risk Metrics + OCR
 │   │   ├── filings/page.tsx         # 공시 원문 — SEC/DART/EDINET 자동분기 (5탭 + AI 요약)
 │   │   ├── settings/page.tsx        # API Key 관리
 │   │   ├── components/
 │   │   │   ├── app-shell.tsx        # 3-panel 레이아웃 래퍼 (SSR-safe dynamic import)
-│   │   │   ├── sidebar.tsx          # 좌측 네비게이션 (12개 메뉴)
+│   │   │   ├── sidebar.tsx          # 좌측 네비게이션 (13개 메뉴)
 │   │   │   ├── ticker-bar.tsx       # 상단 실시간 지수 바 (S&P, NASDAQ, KOSPI, BTC)
 │   │   │   ├── chat-panel.tsx       # 우측 AI Copilot 채팅
 │   │   │   ├── filings/
 │   │   │   │   └── FilingsViewer.tsx       # 공시 뷰어 (IntersectionObserver scroll-spy)
+│   │   │   ├── transcripts/
+│   │   │   │   ├── TranscriptUploadForm.tsx   # YouTube/URL/업로드 3-탭 입력
+│   │   │   │   ├── TranscriptJobList.tsx      # 상태 배지 + 진행률 리스트
+│   │   │   │   ├── TranscriptDetailPanel.tsx  # 요약/키워드/감성/원문 패널
+│   │   │   │   └── TranscriptSearchBar.tsx    # 저장된 트랜스크립트 전문 검색
 │   │   │   ├── macro/
 │   │   │   │   ├── GlobalMacroQuadrantChart.tsx  # 성장 vs 인플레 Z-score 산점도
 │   │   │   │   ├── YieldFxDualAxisChart.tsx       # US10Y 스프레드 vs FX 이중축
@@ -134,6 +140,8 @@ atlas-terminal/
 │   │   └── lib/
 │   │       ├── use-ticker.ts        # 티커 상태 훅 (localStorage + CustomEvent, hydration-safe)
 │   │       ├── api.ts               # API 클라이언트 유틸 (apiFetch, apiPost)
+│   │       ├── use-video-transcript.ts  # 트랜스크립트 submit/list/get/search/poll 훅
+│   │       ├── video-transcript-types.ts # 트랜스크립트 타입 정의
 │   │       ├── ticker-alias.ts      # 자연어→티커 매핑 ("gold"→GC=F, "samsung"→005930.KS)
 │   │       └── filing-jurisdiction.ts # 티커→관할권 추론 (SEC/DART/EDINET)
 │   ├── next.config.mjs              # /api/* → localhost:8000 프록시
@@ -141,12 +149,13 @@ atlas-terminal/
 │   └── package.json
 │
 ├── server/                          # FastAPI 백엔드
-│   ├── main.py                      # FastAPI app + 21개 라우터 등록
-│   ├── routers/                     # API 엔드포인트 (21개)
+│   ├── main.py                      # FastAPI app + 22개 라우터 등록
+│   ├── routers/                     # API 엔드포인트 (22개)
 │   │   ├── analysis.py              # POST /api/analysis — Gemini LLM 분석 (strategy/risks/mda/forensic)
 │   │   ├── chat.py                  # /api/chat — AI Copilot
 │   │   ├── crypto.py                # /api/crypto — 암호화폐 가격
 │   │   ├── dart.py                  # /api/dart — Korea DART 기업검색 + 사업보고서 섹션
+│   │   ├── daily_news.py            # /api/daily-news — FT 헤드라인 + 번역
 │   │   ├── earnings.py              # /api/earnings — history|calendar|quarterly|transcript
 │   │   ├── edgar.py                 # /api/edgar — SEC 10-K 다운로드 + 파싱
 │   │   ├── edinet.py                # /api/edinet — Japan EDINET 링크 + 섹션 (optional key)
@@ -163,7 +172,8 @@ atlas-terminal/
 │   │   ├── research.py              # /api/research — 퀀트 대시보드 (F-Score/DuPont/Sankey/Waterfall/Anomaly)
 │   │   ├── screener.py              # /api/screener — 종목 검색 + 백테스트
 │   │   ├── technical.py             # /api/technical — indicators/chart-data/fibonacci/ichimoku
-│   │   └── valuation.py             # /api/valuation — DCF/Sensitivity/Monte Carlo/Tornado/Reverse DCF
+│   │   ├── valuation.py             # /api/valuation — DCF/Sensitivity/Monte Carlo/Tornado/Reverse DCF
+│   │   └── video_transcript.py      # /api/video — submit/upload/jobs/search/delete
 │   ├── services/                    # 비즈니스 로직 (37개)
 │   │   ├── backtester.py            # 전략 백테스트 (SMA/RSI/Buy&Hold)
 │   │   ├── cache.py                 # 인메모리 TTL 캐시 데코레이터
@@ -200,6 +210,7 @@ atlas-terminal/
 │   │   ├── sensitivity.py           # build_sensitivity_matrix, build_tornado_data
 │   │   ├── smart_money_service.py   # Copper/Gold ratio + RORO 리스크 복합지수
 │   │   ├── text_chunker.py          # smart_chunk, clean_text_for_llm
+│   │   ├── video_transcript_service.py # yt-dlp + faster-whisper + Gemini 통합 파이프라인
 │   │   └── yield_fx_service.py      # US10Y 스프레드 vs FX (USDJPY/EURUSD/USDKRW)
 │   ├── db/                          # 데이터베이스 레이어
 │   │   ├── unified_repo.py          # SQLite/PostgreSQL 통합 인터페이스
@@ -209,6 +220,8 @@ atlas-terminal/
 │   │   ├── portfolio_repo.py        # 포트폴리오 SQLite CRUD
 │   │   ├── pg_portfolio_repo.py     # 포트폴리오 PostgreSQL CRUD
 │   │   ├── pg_cache_repo.py         # PostgreSQL 캐시
+│   │   ├── video_repo.py            # 트랜스크립트 SQLite CRUD + FTS5
+│   │   ├── pg_video_repo.py         # 트랜스크립트 PostgreSQL CRUD + tsvector
 │   │   ├── dashboard_repo.py        # 대시보드 레이아웃 저장
 │   │   └── settings_repo.py         # 설정 저장소
 │   ├── models/
@@ -416,7 +429,17 @@ fontFamily: {
 |--------|------|------|
 | GET | `/api/markets/heatmap/{index_name}` | 지수 구성종목 히트맵 (S&P/NASDAQ/KOSPI/FTSE) |
 
-### 5.16 기타
+### 5.16 Video Transcript (`/api/video`)
+| Method | Path | 설명 |
+|--------|------|------|
+| POST | `/api/video/submit` | YouTube/웹 URL/로컬 경로 제출 → 비동기 transcript job 생성 |
+| POST | `/api/video/upload` | multipart 업로드 → 임시 저장 후 transcript job 생성 |
+| GET | `/api/video/jobs` | 최근 트랜스크립트 작업 목록 |
+| GET | `/api/video/jobs/{job_id}` | 단일 작업 상세 (상태 + 분석 + 원문) |
+| GET | `/api/video/search?q=` | 저장된 트랜스크립트 전문 검색 |
+| DELETE | `/api/video/jobs/{job_id}` | 작업 삭제 |
+
+### 5.17 기타
 | Prefix | 설명 |
 |--------|------|
 | `/api/analysis` | Gemini AI 분석 (strategy/risks/mda/forensic/financials) |
@@ -428,7 +451,7 @@ fontFamily: {
 
 ---
 
-## 6. Frontend Pages (전체 12개)
+## 6. Frontend Pages (전체 13개)
 
 | 경로 | 파일 | 핵심 기능 |
 |------|------|----------|
@@ -440,6 +463,7 @@ fontFamily: {
 | `/macro` | `macro/page.tsx` | **5탭**(FRED/Cycle Heatmap/OECD CLI/Korea/Calendar) + **Quadrant**(성장vs인플레) + **YieldFX** + **SmartMoney**(Copper/Gold+RORO) |
 | `/earnings` | `earnings/page.tsx` | 다음 실적일, EPS Beat/Miss 바차트, 분기 매출/순이익 |
 | `/news` | `news/page.tsx` | Split-view — 좌측 기사 리스트(340px) + 우측 iframe 원문 보기 |
+| `/transcripts` | `transcripts/page.tsx` | 비디오/오디오 입력, 상태 폴링, 요약/키워드/감성, 전문검색 |
 | `/screener` | `screener/page.tsx` | **종목 스크리너**(PE/섹터/배당 필터) + **전략 백테스트**(SMA/RSI/Buy&Hold, 캔들차트 시각화) |
 | `/portfolio` | `portfolio/page.tsx` | 포지션 CRUD + Risk Metrics(VaR/Sharpe/MDD) + OCR 스크린샷 |
 | `/filings` | `filings/page.tsx` | **관할권 자동분기** — 티커 접미사로 SEC/DART(`.KS`/`.KQ`)/EDINET(`.T`), 5탭 + AI Summary |
@@ -566,14 +590,16 @@ pydantic>=2.7.0         google-generativeai>=0.8.0
 anthropic>=0.39.0       openai>=1.50.0
 beautifulsoup4>=4.12.0  requests>=2.31.0
 pandas>=2.0.0           lxml>=4.9.0
-python-dotenv>=1.0.0    yfinance>=0.2.40
-yahooquery>=2.2.0       sec-edgar-downloader>=5.0.0
-feedparser>=6.0.0       ta>=0.11.0
-dart-fss>=0.4.0         numpy>=1.20.0
-scipy>=1.10.0           dbnomics>=1.2.0
-aiosqlite>=0.20.0       asyncpg>=0.30.0
-pillow>=10.0.0          httpx>=0.27.0
-pytest>=8.0.0
+python-dotenv>=1.0.0    python-multipart>=0.0.9
+yfinance>=0.2.40        yahooquery>=2.2.0
+sec-edgar-downloader>=5.0.0  feedparser>=6.0.0
+ta>=0.11.0              dart-fss>=0.4.0
+numpy>=1.20.0           scipy>=1.10.0
+dbnomics>=1.2.0         aiosqlite>=0.20.0
+asyncpg>=0.30.0         pillow>=10.0.0
+httpx>=0.27.0           pytest>=8.0.0
+faster-whisper>=1.0.3   yt-dlp>=2024.10.7
+srt>=3.5.3              ffmpeg-python>=0.2.0
 ```
 
 ### Node.js (`apps/web/package.json`)
@@ -592,6 +618,7 @@ recharts: ^2.15.4
 GOOGLE_API_KEY=        # Gemini API
 SEC_EDGAR_EMAIL=       # SEC 정책 필수 (10-K 다운로드용)
 DATABASE_URL=          # PostgreSQL (없으면 SQLite 자동)
+WHISPER_MODEL_SIZE=    # faster-whisper model size (default: base, optional: small/medium)
 NEWS_API_KEY=          # 선택
 FMP_API_KEY=           # Financial Modeling Prep (선택 — 비율·트랜스크립트·캘린더)
 ECOS_API_KEY=          # 한국은행 ECOS (선택)

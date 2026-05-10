@@ -9,13 +9,13 @@ import { useTicker } from "../lib/use-ticker";
 
 interface Indicators {
   ticker: string;
-  current_price: number;
-  rsi_14: number;
-  sma: { sma_20: number; sma_50: number; sma_200: number | null };
-  ema: { ema_12: number; ema_26: number };
-  macd: { macd: number; signal: number; histogram: number };
-  bollinger_bands: { upper: number; middle: number; lower: number };
-  atr_14: number;
+  current_price: number | null;
+  rsi_14: number | null;
+  sma: { sma_20: number | null; sma_50: number | null; sma_200: number | null };
+  ema: { ema_12: number | null; ema_26: number | null };
+  macd: { macd: number | null; signal: number | null; histogram: number | null };
+  bollinger_bands: { upper: number | null; middle: number | null; lower: number | null };
+  atr_14: number | null;
 }
 
 interface ChartBar {
@@ -29,10 +29,37 @@ interface ChartBar {
 
 interface FibLevels {
   ticker: string;
-  high_52w: number;
-  low_52w: number;
-  current_price: number;
-  levels: Record<string, number>;
+  high_52w: number | null;
+  low_52w: number | null;
+  current_price: number | null;
+  levels: Record<string, number | null>;
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function formatMoney(value: number | null | undefined, digits = 2): string {
+  return isFiniteNumber(value) ? `$${value.toFixed(digits)}` : "—";
+}
+
+function formatNumber(value: number | null | undefined, digits = 2): string {
+  return isFiniteNumber(value) ? value.toFixed(digits) : "—";
+}
+
+function formatPercent(value: number | null | undefined, digits = 1): string {
+  return isFiniteNumber(value) ? `${value.toFixed(digits)}%` : "—";
+}
+
+function safeRatioPercent(numerator: number | null | undefined, denominator: number | null | undefined): number | null {
+  if (!isFiniteNumber(numerator) || !isFiniteNumber(denominator) || denominator === 0) return null;
+  const result = (numerator / denominator) * 100;
+  return Number.isFinite(result) ? result : null;
+}
+
+function compareAbove(lhs: number | null | undefined, rhs: number | null | undefined): boolean | null {
+  if (!isFiniteNumber(lhs) || !isFiniteNumber(rhs)) return null;
+  return lhs > rhs;
 }
 
 export default function TechnicalPage() {
@@ -153,7 +180,7 @@ export default function TechnicalPage() {
   if (loading) return <LoadingPulse label="Loading technical data…" />;
 
   const macdSignal = indicators?.macd
-    ? indicators.macd.histogram > 0 ? "Bullish" : "Bearish"
+    ? indicators.macd.histogram == null ? "—" : indicators.macd.histogram > 0 ? "Bullish" : "Bearish"
     : "—";
 
   return (
@@ -185,20 +212,20 @@ export default function TechnicalPage() {
       {/* Indicator Cards */}
       {indicators && (
         <div className="grid grid-cols-4 gap-3 mb-6">
-          <StatCard label="Current Price" value={`$${indicators.current_price?.toFixed(2)}`} />
+          <StatCard label="Current Price" value={formatMoney(indicators.current_price)} />
           <StatCard
             label="RSI (14)"
-            value={indicators.rsi_14}
-            tone={indicators.rsi_14 > 70 ? "negative" : indicators.rsi_14 < 30 ? "positive" : "default"}
-            detail={indicators.rsi_14 > 70 ? "Overbought" : indicators.rsi_14 < 30 ? "Oversold" : "Neutral"}
+            value={formatNumber(indicators.rsi_14, 1)}
+            tone={indicators.rsi_14 != null && indicators.rsi_14 > 70 ? "negative" : indicators.rsi_14 != null && indicators.rsi_14 < 30 ? "positive" : "default"}
+            detail={indicators.rsi_14 != null ? (indicators.rsi_14 > 70 ? "Overbought" : indicators.rsi_14 < 30 ? "Oversold" : "Neutral") : "No data"}
           />
           <StatCard
             label="MACD Signal"
             value={macdSignal}
-            tone={indicators.macd.histogram > 0 ? "positive" : "negative"}
-            detail={`H: ${indicators.macd.histogram.toFixed(4)}`}
+            tone={indicators.macd.histogram == null ? "default" : indicators.macd.histogram > 0 ? "positive" : "negative"}
+            detail={`H: ${formatNumber(indicators.macd.histogram, 4)}`}
           />
-          <StatCard label="ATR (14)" value={indicators.atr_14} detail="Volatility" />
+          <StatCard label="ATR (14)" value={formatNumber(indicators.atr_14, 2)} detail="Volatility" />
         </div>
       )}
 
@@ -209,16 +236,16 @@ export default function TechnicalPage() {
             <h3 className="text-text-secondary text-sm font-semibold mb-3">Moving Averages</h3>
             <div className="space-y-2">
               {[
-                { label: "SMA 20", value: indicators.sma.sma_20, signal: indicators.current_price > indicators.sma.sma_20 },
-                { label: "SMA 50", value: indicators.sma.sma_50, signal: indicators.current_price > indicators.sma.sma_50 },
-                { label: "SMA 200", value: indicators.sma.sma_200, signal: indicators.sma.sma_200 ? indicators.current_price > indicators.sma.sma_200 : null },
-                { label: "EMA 12", value: indicators.ema.ema_12, signal: indicators.current_price > indicators.ema.ema_12 },
-                { label: "EMA 26", value: indicators.ema.ema_26, signal: indicators.current_price > indicators.ema.ema_26 },
+                { label: "SMA 20", value: indicators.sma.sma_20, signal: compareAbove(indicators.current_price, indicators.sma.sma_20) },
+                { label: "SMA 50", value: indicators.sma.sma_50, signal: compareAbove(indicators.current_price, indicators.sma.sma_50) },
+                { label: "SMA 200", value: indicators.sma.sma_200, signal: compareAbove(indicators.current_price, indicators.sma.sma_200) },
+                { label: "EMA 12", value: indicators.ema.ema_12, signal: compareAbove(indicators.current_price, indicators.ema.ema_12) },
+                { label: "EMA 26", value: indicators.ema.ema_26, signal: compareAbove(indicators.current_price, indicators.ema.ema_26) },
               ].map((ma) => (
                 <div key={ma.label} className="flex justify-between items-center text-sm">
                   <span className="text-text-muted">{ma.label}</span>
                   <div className="flex items-center gap-3">
-                    <span className="text-text-primary font-mono">{ma.value != null ? `$${ma.value.toFixed(2)}` : "—"}</span>
+                    <span className="text-text-primary font-mono">{formatMoney(ma.value)}</span>
                     <span className={`text-xs font-semibold px-2 py-0.5 rounded ${
                       ma.signal === true ? "bg-fin-positive/15 text-fin-positive" :
                       ma.signal === false ? "bg-fin-negative/15 text-fin-negative" : "bg-surface-sunken text-text-muted"
@@ -233,48 +260,62 @@ export default function TechnicalPage() {
 
           <ChartContainer title="Bollinger Bands" subtitle="20-period, 2 standard deviations.">
             <h3 className="text-text-secondary text-sm font-semibold mb-3">Bollinger Bands (20, 2)</h3>
+            {(() => {
+              const upper = indicators.bollinger_bands.upper;
+              const middle = indicators.bollinger_bands.middle;
+              const lower = indicators.bollinger_bands.lower;
+              const bbWidth = middle == null ? null : safeRatioPercent((upper ?? 0) - (lower ?? 0), middle);
+              const bandSpan = isFiniteNumber(upper) && isFiniteNumber(lower) ? upper - lower : null;
+              const percentB =
+                isFiniteNumber(indicators.current_price) && isFiniteNumber(lower) && isFiniteNumber(bandSpan) && bandSpan !== 0
+                  ? ((indicators.current_price - lower) / bandSpan) * 100
+                  : null;
+
+              return (
             <div className="space-y-3">
               <div className="flex justify-between text-sm">
                 <span className="text-text-muted">Upper Band</span>
-                <span className="font-mono text-fin-negative">${indicators.bollinger_bands.upper.toFixed(2)}</span>
+                <span className="font-mono text-fin-negative">{formatMoney(upper)}</span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-text-muted">Middle Band</span>
-                <span className="font-mono text-brand-gold">${indicators.bollinger_bands.middle.toFixed(2)}</span>
+                <span className="font-mono text-brand-gold">{formatMoney(middle)}</span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-text-muted">Lower Band</span>
-                <span className="font-mono text-fin-positive">${indicators.bollinger_bands.lower.toFixed(2)}</span>
+                <span className="font-mono text-fin-positive">{formatMoney(lower)}</span>
               </div>
               <div className="flex justify-between text-sm border-t border-border pt-3">
                 <span className="text-text-muted">BB Width</span>
                 <span className="text-text-primary font-mono">
-                  {((indicators.bollinger_bands.upper - indicators.bollinger_bands.lower) / indicators.bollinger_bands.middle * 100).toFixed(2)}%
+                  {formatPercent(bbWidth, 2)}
                 </span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-text-muted">%B Position</span>
                 <span className="text-text-primary font-mono">
-                  {((indicators.current_price - indicators.bollinger_bands.lower) / (indicators.bollinger_bands.upper - indicators.bollinger_bands.lower) * 100).toFixed(1)}%
+                  {formatPercent(percentB, 1)}
                 </span>
               </div>
             </div>
+              );
+            })()}
 
             {/* MACD Detail */}
             <h3 className="text-text-secondary text-sm font-semibold mb-3 mt-5">MACD (12, 26, 9)</h3>
             <div className="space-y-2">
               <div className="flex justify-between text-sm">
                 <span className="text-text-muted">MACD Line</span>
-                <span className="text-text-primary font-mono">{indicators.macd.macd.toFixed(4)}</span>
+                <span className="text-text-primary font-mono">{formatNumber(indicators.macd.macd, 4)}</span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-text-muted">Signal Line</span>
-                <span className="text-text-primary font-mono">{indicators.macd.signal.toFixed(4)}</span>
+                <span className="text-text-primary font-mono">{formatNumber(indicators.macd.signal, 4)}</span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-text-muted">Histogram</span>
-                <span className={`font-mono ${indicators.macd.histogram > 0 ? "text-fin-positive" : "text-fin-negative"}`}>
-                  {indicators.macd.histogram.toFixed(4)}
+                <span className={`font-mono ${indicators.macd.histogram != null && indicators.macd.histogram > 0 ? "text-fin-positive" : "text-fin-negative"}`}>
+                  {formatNumber(indicators.macd.histogram, 4)}
                 </span>
               </div>
             </div>
@@ -288,19 +329,23 @@ export default function TechnicalPage() {
           <h3 className="text-text-secondary text-sm font-semibold mb-3">Fibonacci Retracement</h3>
           <div className="grid grid-cols-7 gap-3">
             {Object.entries(fib.levels).map(([level, price]) => {
-              const isNear = Math.abs(price - fib.current_price) / fib.current_price < 0.02;
+              const isNear =
+                isFiniteNumber(price) &&
+                isFiniteNumber(fib.current_price) &&
+                fib.current_price !== 0 &&
+                Math.abs(price - fib.current_price) / fib.current_price < 0.02;
               return (
                 <div key={level} className={`rounded-lg p-3 text-center ${isNear ? "border border-brand-gold bg-brand-gold/10" : "bg-surface-sunken"}`}>
                   <div className="text-text-muted text-xs mb-1">{level}</div>
                   <div className={`font-mono text-sm font-semibold ${isNear ? "text-brand-navy" : "text-text-primary"}`}>
-                    ${price.toFixed(2)}
+                    {formatMoney(price)}
                   </div>
                 </div>
               );
             })}
           </div>
           <div className="mt-3 text-text-muted text-xs font-mono">
-            52W Range: ${fib.low_52w.toFixed(2)} — ${fib.high_52w.toFixed(2)} | Current: ${fib.current_price.toFixed(2)}
+            52W Range: {formatMoney(fib.low_52w)} — {formatMoney(fib.high_52w)} | Current: {formatMoney(fib.current_price)}
           </div>
         </ChartContainer>
       )}

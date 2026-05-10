@@ -87,7 +87,7 @@ export default function SettingsPage() {
       <Card title="About">
         <div className="text-text-muted text-sm space-y-1">
           <p>ATLAS Terminal v2.0 — Advanced Trading & Liquidity Analysis System</p>
-          <p>API keys are stored locally in your browser. They are never sent to our servers.</p>
+          <p>API keys are stored locally in your browser and only sent to your local ATLAS backend when an AI feature needs them.</p>
         </div>
       </Card>
     </div>
